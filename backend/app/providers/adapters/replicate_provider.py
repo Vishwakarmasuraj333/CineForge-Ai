@@ -105,21 +105,34 @@ class ReplicateVideoProvider(BaseVideoProvider):
     async def submit_generation(self, request: VideoGenerationRequest) -> ProviderJobStatus:
         self.validate_request(request)
 
-        # Map internal parameters to Replicate input schema
-        input_payload = {
-            "prompt": request.prompt,
-            "aspect_ratio": request.aspect_ratio,
-        }
-        if request.negative_prompt:
-            input_payload["negative_prompt"] = request.negative_prompt
-        if request.seed is not None:
-            input_payload["seed"] = request.seed
-        if request.input_image_url and request.generation_type == "image_to_video":
-            input_payload["first_frame_image"] = request.input_image_url
+        is_kling = "kling" in request.model_id.lower()
+        is_cogvideo = "cogvideo" in request.model_id.lower()
 
-        url = f"{REPLICATE_API_BASE}/models/minimax/video-01/predictions"
-        if "kling" in request.model_id:
-            url = f"{REPLICATE_API_BASE}/models/kwaivgi/kling-v1/predictions"
+        input_payload: Dict[str, object] = {
+            "prompt": request.prompt,
+        }
+
+        if is_kling:
+            url = f"{REPLICATE_API_BASE}/models/kwaivgi/kling-v1.6-standard/predictions"
+            input_payload["duration"] = request.duration_seconds
+            if request.aspect_ratio:
+                input_payload["aspect_ratio"] = request.aspect_ratio
+            if request.negative_prompt:
+                input_payload["negative_prompt"] = request.negative_prompt
+            if request.input_image_url and request.generation_type == "image_to_video":
+                input_payload["start_image"] = request.input_image_url
+        elif is_cogvideo:
+            url = f"{REPLICATE_API_BASE}/models/fofr/cogvideox-5b/predictions"
+            if request.seed is not None:
+                input_payload["seed"] = request.seed
+        else:
+            # Default: Minimax Video-01
+            url = f"{REPLICATE_API_BASE}/models/minimax/video-01/predictions"
+            input_payload["prompt_optimizer"] = True
+            if request.input_image_url and request.generation_type == "image_to_video":
+                input_payload["first_frame_image"] = request.input_image_url
+            elif request.aspect_ratio:
+                input_payload["aspect_ratio"] = request.aspect_ratio
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             try:
@@ -130,8 +143,12 @@ class ReplicateVideoProvider(BaseVideoProvider):
                 )
                 if response.status_code == 401:
                     raise ProviderAuthError("Invalid Replicate API token.", self.provider_name)
+                elif response.status_code == 422:
+                    raise ValidationException(f"Replicate API unprocessable parameters: {response.text}")
                 elif response.status_code == 429:
-                    raise ProviderRateLimitError("Replicate API rate limit reached.", self.provider_name)
+                    raise ProviderRateLimitError("Replicate API rate limit or quota exceeded.", self.provider_name)
+                elif response.status_code >= 500:
+                    raise ProviderError(f"Replicate provider server error: HTTP {response.status_code}", self.provider_name, response.status_code)
                 elif response.status_code >= 400:
                     raise ProviderError(
                         f"Replicate API error: {response.text}", self.provider_name, response.status_code

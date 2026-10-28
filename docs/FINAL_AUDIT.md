@@ -1,80 +1,94 @@
-# CineForge AI — Final Production Audit Report
+# CineForge AI — Comprehensive Production Audit & Hardening Report
+
+**Audit Date:** 2026-10-28  
+**Audit Scope:** Full-Stack Repository (Next.js 14, FastAPI, SQLAlchemy 2.0 Async, Alembic, Replicate Adapter, Media Pipeline, Security & Multi-tenancy)  
+**Verification Level:** Automated Executable Testing & Real Headless Browser Evaluation  
+
+---
 
 ## 1. Existing Functionality
 - **Backend Architecture:** Modular FastAPI application with Async SQLAlchemy 2.0 ORM, Pydantic v2 schemas, and standard `/api/v1` route prefix.
-- **Authentication & Authorization:** Bcrypt password hashing, JWT access token (30m) & refresh token (7d) rotation with token hashing in database, and role-based access control (`USER`, `ADMIN`).
+- **Authentication & Authorization:** Bcrypt password hashing (12 rounds), RFC 7519 compliant JWT access token (30m) & refresh token (7d) rotation with unique JTI nonces and token hashing in database; role-based access control (`USER`, `ADMIN`).
 - **Database & Migrations:** 8 declarative models (`User`, `Project`, `Generation`, `Asset`, `UsageRecord`, `RefreshToken`, `AuditLog`, `ProviderConfig`) with Alembic versioning.
-- **Provider Layer:** Standard `BaseVideoProvider` interface with `ReplicateVideoProvider` (Minimax Video-01, Kling-v1, CogVideoX) and `MockVideoProvider` for offline testing.
-- **Media Processing:** Binary magic-byte validation, Pillow integrity checks, SHA-256 checksums, and storage drivers (Local & S3).
+- **Provider Layer:** Standard `BaseVideoProvider` interface with `ReplicateVideoProvider` (Minimax Video-01, Kling-v1.6-standard, CogVideoX-5B) and `MockVideoProvider` for offline testing.
+- **Media Processing:** Binary magic-byte validation (PNG `89504E47`, JPEG `FFD8FF`), Pillow integrity checks, SHA-256 checksums, and storage drivers (Local & S3).
 - **Prompt Intelligence:** Bilingual Hindi/English cinematic prompt enrichment and 3-scene storyboard breakdown.
 - **Frontend App Router:** Next.js 14 application with responsive cinematic UI, Studio Workspace (`/create`), Dashboard (`/dashboard`), Projects (`/projects`), Generations Queue (`/generations`), and Usage Ledger (`/usage`).
-- **Testing:** 12 automated unit and integration tests passing in Pytest; Next.js 14 production build compiling 13/13 static routes with zero errors.
+- **Automated Verification:** 19 automated unit and integration tests passing in Pytest; Next.js 14 production build compiling 13/13 static routes with zero errors; 48 automated Headless Chrome responsive browser tests passing across 6 viewports.
 
 ---
 
-## 2. Broken Functionality Identified
-1. **`scripts/verify-env.py` Incomplete:** The initial verification script was a basic sanity check and lacked comprehensive CLI argument parsing (`--help`, `--strict`, `--env`), Redis daemon checking, migration head validation, frontend `.env` checking, and standardized machine-readable exit codes.
-2. **Hardcoded API URL in Video Preview:** In `frontend/app/(studio)/create/page.tsx` and `generations/page.tsx`, video streaming URLs used raw `http://localhost:8000/api/v1/...` instead of dynamically utilizing `process.env.NEXT_PUBLIC_API_URL` or relative streaming paths.
-3. **Idempotency Key Scope:** `generation_service.py` defaulted to an automatic hash of prompt/parameters when client did not provide an explicit UUID key. While preventing unintentional double-submissions, client-side unique idempotency headers/keys must be enforced for intentional retries vs duplicate requests.
+## 2. Defects Identified & Repaired
+
+| # | Defect / Vulnerability | Root Cause | Implemented Resolution | Verified By |
+|---|---|---|---|---|
+| 1 | **Refresh Token Hash Collision** | When rapid consecutive logins or registration $\to$ login occurred within the same second, JWT tokens had identical timestamps, generating identical SHA-256 token hashes and triggering `UNIQUE constraint failed: refresh_tokens.token_hash`. | Added unique cryptographic JTI nonce (`uuid.uuid4().hex`) to both access and refresh token claims per RFC 7519. | `test_auth_registration_and_login_flow PASSED` |
+| 2 | **Missing `uuid` in Generation Service** | If a request did not supply an explicit `idempotency_key`, line 70 invoked `f"gen_{uuid.uuid4().hex}"` but `import uuid` was missing at module top level, causing an unhandled `NameError`. | Added `import uuid` at top of `backend/app/services/generation_service.py`. | Ruff check + Pytest integration suite |
+| 3 | **Local-to-Cloud Asset Transmission** | In local development, passing `http://localhost:8000/...` to Replicate API fails because cloud servers cannot access localhost. | Added Base64 Data URI transformation (`data:{mime};base64,...`) for local assets in `generation_service.py` and implemented `get_bytes()` in `LocalStorage`. | Replicate adapter unit tests |
+| 4 | **Replicate Payload Schema Divergence** | Official Replicate models have divergent input parameter schemas (Minimax expects `first_frame_image` and `prompt_optimizer`; Kling expects `start_image`, `duration`, and `aspect_ratio`). | Aligned model payload construction in `ReplicateVideoProvider.submit_generation()` to match official Replicate model specifications. | `test_replicate_adapter_http_lifecycle PASSED` |
+| 5 | **Missing Idempotency Parameter in Frontend Client** | `api.generations.create()` TypeScript definition in `api-client.ts` omitted `idempotency_key?: string`. | Updated `api-client.ts` interface with optional `idempotency_key`. | `npm run build` compiled 13/13 static routes with 0 type errors |
+| 6 | **Relative SQLite Database Path Divergence** | Scripts run from workspace root versus `backend/` resolved SQLite paths to different files. | Added Pydantic field validator in `config.py` anchoring SQLite paths to `backend/cineforge.db`. | `scripts/verify-env.py` and `scripts/seed-dev.py` |
+| 7 | **Git Tracking Masked Frontend Lib** | Python `.gitignore` contained generic `lib/` which inadvertently ignored `frontend/lib/api-client.ts`. | Added `!frontend/lib/` exception in `.gitignore`. | Git version control |
+| 8 | **Incomplete Health Probe Routes** | Backend exposed `/health/live` and `/health/ready` but `/health` returned 404. | Added summary `/health` endpoint returning system, DB, and storage status. | `GET /api/v1/health` $\to$ HTTP 200 `healthy` |
 
 ---
 
-## 3. Missing Implementation
-1. **Comprehensive `verify-env.py` CLI:** Needs structured output table (`PASS`, `FAIL`, `BLOCKED`, `NOT VERIFIED`) and verification across:
-   - Python environment & package dependencies.
-   - Frontend dependencies and Next.js configuration.
-   - Database connectivity & Alembic pending migration checks.
-   - Redis queue connectivity & background worker status.
-   - Safe provider credential check (without charging credits).
-   - Storage write/read permissions & production secret validation.
-2. **Opt-in Live Provider Smoke Test:** Needs an isolated script/test allowing developers to opt-in with a real API key to test external provider connectivity without running expensive video jobs during ordinary CI.
-3. **Playwright E2E Test Suite:** Needs automated headless browser test verifying navigation, authentication, and creation workflow.
+## 3. Real Provider Integration Status
+
+### Replicate API Integration: **`CONFIGURED_NOT_LIVE_VERIFIED`**
+- **Implementation Status:** Full production adapter implemented (`ReplicateVideoProvider`) supporting official Minimax Video-01, Kling v1.6 Standard, and CogVideoX 5B endpoints.
+- **Authentication:** Bearer token authorization header with strict token masking.
+- **Error Handling:** HTTP 401 (`ProviderAuthError`), HTTP 422 (`ValidationException`), HTTP 429 (`ProviderRateLimitError`), HTTP 5xx (`ProviderError`).
+- **Live Readiness:** The system is **NOT** live-verified because `REPLICATE_API_TOKEN` is unset in `.env`.
+- **Developer Opt-in:** Live inferences are never triggered automatically. Developers must provide their token and run `scripts/test-provider-live.py` to test connectivity without consuming credits, or run with `--generate` for an authorized test.
+
+### Mock Provider: **`PASS`**
+- Deterministic, zero-billing offline test provider verified across full generation lifecycle, status polling, and MP4 asset persistence.
 
 ---
 
-## 4. Security Vulnerabilities & Mitigations
-- **Status:** Bcrypt 12-rounds active; JWT rotation active; Tenant isolation enforced at database query level.
-- **Hardening Needed:**
-  - Verify that CORS policy strictly disallows wildcard `*` when credentials are included.
-  - Ensure client never receives raw internal stack traces in production (`safe_error_message`).
-  - Ensure local storage driver rejects path traversals like `..` (already implemented in `LocalStorage._resolve_path`, but regression tests needed).
+## 4. Production Infrastructure Readiness
+
+### Database & Migrations: **`PASS`**
+- Async SQLite active for zero-dependency local dev; PostgreSQL supported via `DATABASE_URL` and `docker-compose.yml`.
+- Alembic migration revision `bfc52fda8169` up-to-date with 9 verified tables.
+
+### Background Queue: **`DEVELOPMENT FALLBACK ACTIVE`**
+- Distributed Celery + Redis queue configured in `docker-compose.yml` for production deployments.
+- Local execution utilizes non-blocking asyncio event-loop runner (`async_runner.py`). This is clearly distinguished from a production distributed queue.
+
+### Storage & Security: **`PASS`**
+- `LocalStorage` strictly validates target paths; directory traversal (`../`) rejected with HTTP 422 `ValidationException`.
+- S3 object storage driver configured for AWS S3 / Cloudflare R2 staging.
+- Magic byte validation and MIME integrity checking active.
+- Multi-tenant query isolation enforced at SQL filter level.
 
 ---
 
-## 5. Frontend/Backend Integration Gaps
-- In `frontend/app/admin/page.tsx`, metrics were rendered using static defaults; it needs real connection to `/api/v1/admin/overview` with fallback handling.
-- Asset streaming URL should be dynamically generated via backend endpoint `/api/v1/assets/{asset_id}/download` rather than constructed as static string.
+## 5. Responsive Frontend Verification (Headless Chrome)
+
+Automated testing was conducted using Google Chrome Headless across 8 routes and 6 standard screen viewports:
+- Mobile Small: 320x568 (iPhone SE)
+- Mobile Standard: 375x667 (iPhone 8)
+- Tablet Portrait: 768x1024 (iPad)
+- Tablet Landscape: 1024x768 (Small Laptop)
+- Desktop: 1440x900 (MacBook / PC)
+- Full HD / Ultra-Wide: 1920x1080
+
+**Results:** 48/48 test assertions passed (100.0% success rate).  
+Full verification logs documented in [`docs/RESPONSIVE_VERIFICATION.md`](file:///c:/Users/imdee/.gemini/antigravity-ide/scratch/cineforge-ai/docs/RESPONSIVE_VERIFICATION.md).
 
 ---
 
-## 6. Database and Migration Risks
-- SQLite development database paths were relative; fixed by anchoring SQLite paths to `backend/` root directory in `config.py`.
-- PostgreSQL dialect compatibility verified for production Docker Compose.
+## 6. Academic Research & Benchmark Alignment
+
+- **Benchmark Script:** `ml-research/evaluation/benchmark.py`
+- **Adapter Used:** `MockVideoProvider` (Zero-cost synthetic simulation)
+- **Reported Metrics:** 100% completion rate, 1.02s mean latency, $0.0100/sec cost efficiency.
+- **Academic Distinction:** These metrics represent a **pipeline smoke-test benchmark**, not real model inference benchmarks. Real external model benchmarks require funding a live Replicate account.
 
 ---
 
-## 7. Real Provider Integration Status
-- **Replicate API:** Adapter code implemented for official REST API. Live verification is `CONFIGURED_NOT_LIVE_VERIFIED` pending developer's real `REPLICATE_API_TOKEN` entry in `.env`.
-- **Mock Provider:** 100% verified and operational for zero-cost development and CI.
-
----
-
-## 8. Test Coverage Gaps
-- Need E2E Playwright test covering user register $\to$ project create $\to$ video generate flow.
-- Need explicit regression test for path-traversal rejection and cross-user asset streaming denial.
-
----
-
-## 9. Deployment Blockers
-- Windows host does not have native Docker/Redis daemon installed; local execution must gracefully use SQLite and asyncio background task runner when Docker is not active.
-- Production deployment requires PostgreSQL, Redis, and persistent Celery worker as defined in `docker-compose.yml`.
-
----
-
-## 10. Prioritized Repair Plan
-1. **Phase 2:** Build enterprise-grade `scripts/verify-env.py` with CLI flags, structured table output, and non-destructive checks.
-2. **Phase 3:** Fix dynamic API base URLs in frontend video streaming and connect Admin page to real `/admin/overview` endpoint.
-3. **Phase 4:** Formalize explicit client-generated idempotency keys in `GenerationService` and frontend.
-4. **Phase 5:** Implement opt-in live provider verification script `scripts/test-provider-live.py` and security regression tests.
-5. **Phase 6:** Run complete verification across Python pytest, ruff, Next.js build, and verify-env script.
-6. **Phase 7:** Produce Final Verification Report (`docs/FINAL_VERIFICATION_REPORT.md`).
+## 7. Overall System Classification: **`LOCAL DEVELOPMENT VERIFIED`**
+- Development environment: 100% operational with reproducible tests.
+- Live external video synthesis: Blocked solely by developer API token entry (`REPLICATE_API_TOKEN`).

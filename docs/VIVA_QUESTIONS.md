@@ -80,3 +80,45 @@ If a user tries to access another user's project ID, the service raises an `Acce
 **Answer:**  
 In production, generating real AI video costs money per second ($0.03 to $0.08 per second).  
 The `MockVideoProvider` allows automated unit tests, CI/CD pipelines, and local development to run with zero API costs while thoroughly verifying the full asynchronous state machine, parameter validation, and media storage drivers.
+
+---
+
+### Q8: How was the Refresh Token hash collision resolved under RFC 7519?
+**Answer:**  
+In standard JWT creation, if two tokens are issued for the same user within the exact same second, identical payloads (`sub`, `iat`, `exp`) produce identical token strings, resulting in identical SHA-256 hashes that violate database unique constraints.  
+CineForge AI resolves this by embedding an RFC 7519 compliant cryptographic `jti` (JWT ID) nonce generated via `uuid.uuid4().hex` in every token claim. This guarantees that every issued token is globally unique even if issued in the same microsecond, eliminating collision and replay vulnerabilities.
+
+---
+
+### Q9: How does the platform handle Image-to-Video when assets are stored locally without a public domain?
+**Answer:**  
+External cloud AI providers (such as Replicate) cannot reach local files (`http://localhost:8000/...`).  
+CineForge AI solves this by intercepting conditioning image assets in `GenerationService`. If the storage backend is local, the asset is retrieved as binary bytes and encoded into a standard Base64 Data URI (`data:{mime};base64,...`) before submission. This allows cloud AI models to ingest the conditioning frame directly without requiring a public reverse proxy or public S3 bucket.
+
+---
+
+### Q10: How does the platform prevent accidental double-billing via Idempotency Keys?
+**Answer:**  
+When submitting a generation request, clients send an explicit UUID `idempotency_key`.
+1. **Identical Parameters:** If a network retry occurs with the same key and identical parameters, the server returns the existing generation record without triggering a second provider submission.
+2. **Conflicting Parameters:** If an attacker or buggy client attempts to reuse an existing idempotency key with different prompt or duration parameters, the server rejects the request with HTTP 422 Unprocessable Content (`ValidationException`).
+
+---
+
+### Q11: What is the architectural difference between the local worker runner and production Celery/Redis?
+**Answer:**  
+1. **Local Development Runner:** Uses Python's in-process `asyncio` event loop (`async_runner.py`) to dispatch non-blocking background tasks without requiring a running Redis daemon or Docker engine.
+2. **Production Celery Queue:** A distributed architecture where FastAPI pushes jobs to an external Redis message broker (`REDIS_URL`), and independent distributed Celery worker processes execute and scale task execution across multiple servers or worker pods.
+
+---
+
+### Q12: How was frontend responsiveness verified without relying purely on compilation status?
+**Answer:**  
+Rather than assuming responsiveness from a successful Next.js build, we developed an automated evaluation script (`scripts/test_responsive_browser.py`) utilizing Google Chrome in Headless mode (`--headless=new`). The script executes 48 assertions across 8 routes and 6 standard viewport standards:
+- Mobile Small (320x568 - iPhone SE)
+- Mobile Standard (375x667 - iPhone 8)
+- Tablet Portrait (768x1024 - iPad)
+- Tablet Landscape (1024x768 - Small Laptop)
+- Desktop (1440x900 - MacBook/PC)
+- Full HD / Ultra-Wide (1920x1080)  
+The script verifies that responsive layout containers (`md:hidden` mobile menu vs `md:flex` desktop sidebar) mount correctly, document titles render, and no runtime layout exceptions occur.

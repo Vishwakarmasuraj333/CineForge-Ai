@@ -16,6 +16,11 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
+    async def get_bytes(self, storage_key: str) -> bytes:
+        """Returns the complete binary content of the stored file."""
+        pass
+
+    @abstractmethod
     async def get_download_url(self, storage_key: str, expires_in: int = 3600) -> str:
         """Returns an authorized download or streaming URL for the stored asset."""
         pass

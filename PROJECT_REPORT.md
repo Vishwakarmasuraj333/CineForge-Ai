@@ -101,16 +101,17 @@ erDiagram
 
 ## 7. Security Design & Hardening
 - **Bcrypt Hash Verification:** 12-round salted hashing prevents credential compromise.
-- **JWT Token Pair Rotation:** 30-minute access tokens coupled with single-use rotating refresh tokens mitigate replay attacks.
+- **RFC 7519 JWT Rotation with JTI Nonce:** 30-minute access tokens coupled with single-use rotating refresh tokens mitigate replay attacks. Cryptographic JTI (JWT ID) claims prevent unique constraint hash collisions during rapid login sequences.
 - **Tenant Isolation:** Enforced at database query level (`WHERE owner_id == current_user.id`), preventing unauthorized cross-user data access.
-- **Media Validation:** Image and video uploads are verified against magic byte signatures (`\x89PNG`, `\xff\xd8\xff`, `ftypmp4`) and sanitized to defeat path-traversal exploits.
+- **Media Validation:** Image and video uploads are verified against binary magic byte signatures (`\x89PNG`, `\xff\xd8\xff`, `ftypmp4`) and sanitized to defeat path-traversal exploits.
+- **Multi-Modal Cloud Compatibility:** Local conditioning images are dynamically transformed into Base64 Data URIs (`data:{mime};base64,...`) allowing external cloud APIs to ingest frames directly without exposing private local ports.
 
 ---
 
 ## 8. Empirical Research Methodology & Results
 
 ### 8.1 Benchmark Setup
-A standardized evaluation protocol (`ml-research/evaluation/benchmark.py`) tested prompts across 4 creative categories: Cinematic Sci-Fi, Character Motion, Atmospheric Nature, and Urban Architecture.
+A standardized evaluation protocol (`ml-research/evaluation/benchmark.py`) tested prompts across 4 creative categories: Cinematic Sci-Fi, Character Motion, Atmospheric Nature, and Urban Architecture. In accordance with academic honesty standards, these measurements represent a **pipeline smoke-test benchmark** conducted under controlled test conditions using the deterministic mock adapter.
 
 ### 8.2 Actual Recorded Metrics
 - **Total Experiments Conducted:** 4
@@ -130,18 +131,25 @@ The adapter abstraction and asynchronous worker successfully isolated the applic
 
 ### 9.1 Backend Testing Suite
 - **Framework:** Pytest 9.2.0 + Pytest-Asyncio
-- **Results:** 12 tests passed, 0 failures, 100% clean exit code in 12.92s.
+- **Results:** 19 tests passed, 0 failures, 100% clean exit code in 13.89s.
   - `test_security.py`: Password hashing, JWT creation, token expiry validation.
   - `test_media_validation.py`: Filename sanitization, magic bytes checking, corrupted file rejection.
-  - `test_providers.py`: Mock provider lifecycle and cost estimation.
-  - `test_auth_api.py`: Registration, duplicate email rejection, login, `/auth/me`.
+  - `test_providers.py`: Mock provider lifecycle, Replicate provider capabilities, validation rules, and mock HTTP adapter lifecycle.
+  - `test_auth_api.py`: Registration, duplicate email rejection (HTTP 409), login, `/auth/me`.
   - `test_projects_api.py`: Full CRUD and HTTP 403 cross-user access barrier verification.
   - `test_generations_api.py`: Generation lifecycle and idempotency deduplication.
+  - `test_security_audit.py`: Path traversal defense, MIME spoofing rejection, cross-user generation isolation, and admin authorization enforcement.
 - **Linting:** Ruff check executed with `All checks passed!`.
 
 ### 9.2 Frontend Production Build
 - **Framework:** Next.js 14.2.35 + TypeScript 5.6
-- **Results:** `✓ Compiled successfully`, `✓ Generating static pages (13/13)`, 0 build errors.
+- **Results:** `✓ Compiled successfully`, `✓ Generating static pages (13/13)`, 0 build errors. Shared First Load JS: 87.3 kB.
+
+### 9.3 Real Headless Chrome Responsive Browser Testing
+- **Engine:** Google Chrome Headless (`chrome.exe`)
+- **Suite:** `scripts/test_responsive_browser.py`
+- **Coverage:** 48 automated tests across 8 routes and 6 viewport standards (320px, 375px, 768px, 1024px, 1440px, 1920px).
+- **Results:** 48/48 passed (100.0% pass rate) with zero layout overflow or runtime exceptions. Full report documented in `docs/RESPONSIVE_VERIFICATION.md`.
 
 ---
 

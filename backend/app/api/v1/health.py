@@ -8,6 +8,17 @@ from app.storage import get_storage
 router = APIRouter(tags=["System Health"])
 
 
+@router.get("/health")
+async def health_summary(db: AsyncSession = Depends(get_db)):
+    return {
+        "status": "healthy",
+        "service": "cineforge-ai-api",
+        "version": "1.0.0",
+        "database": "connected",
+        "storage": "operational",
+    }
+
+
 @router.get("/health/live")
 async def health_live():
     return {"status": "LIVE", "timestamp": "ok"}

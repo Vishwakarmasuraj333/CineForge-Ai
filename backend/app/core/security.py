@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -42,9 +43,10 @@ def create_access_token(
     to_encode: Dict[str, Any] = {
         "sub": str(subject),
         "role": role,
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": expire,
-        "type": "access"
+        "type": "access",
     }
     if extra_claims:
         to_encode.update(extra_claims)
@@ -66,9 +68,10 @@ def create_refresh_token(
 
     to_encode: Dict[str, Any] = {
         "sub": str(subject),
+        "jti": uuid.uuid4().hex,
         "iat": now,
         "exp": expire,
-        "type": "refresh"
+        "type": "refresh",
     }
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt

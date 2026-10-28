@@ -1,3 +1,4 @@
+import base64
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -168,7 +169,14 @@ class GenerationService:
                 )
                 asset = asset_res.scalar_one_or_none()
                 if asset:
-                    input_url = await self.storage.get_download_url(asset.storage_key)
+                    if getattr(self.storage, "backend_type", "local") == "local":
+                        # Convert local asset to base64 Data URI for cloud provider compatibility
+                        file_bytes = await self.storage.get_bytes(asset.storage_key)
+                        mime = asset.mime_type or "image/jpeg"
+                        b64 = base64.b64encode(file_bytes).decode("utf-8")
+                        input_url = f"data:{mime};base64,{b64}"
+                    else:
+                        input_url = await self.storage.get_download_url(asset.storage_key)
 
             req = VideoGenerationRequest(
                 generation_id=gen.id,

@@ -9,6 +9,8 @@ from app.storage.base import BaseStorage
 class LocalStorage(BaseStorage):
     """Local filesystem storage driver for development and test environments."""
 
+    backend_type: str = "local"
+
     def __init__(self, base_dir: str = settings.LOCAL_STORAGE_DIR):
         self.base_dir = Path(base_dir).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -33,6 +35,12 @@ class LocalStorage(BaseStorage):
         if not target_path.exists():
             raise EntityNotFoundException("StorageAsset", storage_key)
         return open(target_path, "rb")
+
+    async def get_bytes(self, storage_key: str) -> bytes:
+        target_path = self._resolve_path(storage_key)
+        if not target_path.exists():
+            raise EntityNotFoundException("StorageAsset", storage_key)
+        return target_path.read_bytes()
 
     async def get_download_url(self, storage_key: str, expires_in: int = 3600) -> str:
         # For local driver, route through secure download endpoint
