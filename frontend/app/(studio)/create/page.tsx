@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api, getVideoAssetUrl } from "@/lib/api-client";
 import {
   Video,
@@ -16,8 +17,11 @@ import {
   UploadCloud,
   CheckCircle2,
   Layers,
-  Clock,
-  Film
+  Film,
+  ExternalLink,
+  ShieldAlert,
+  Info,
+  RotateCcw,
 } from "lucide-react";
 
 function CreateStudioContent() {
@@ -59,7 +63,6 @@ function CreateStudioContent() {
 
   // Prompt Intelligence & Storyboard
   const [enhancing, setEnhancing] = useState(false);
-  const [enhancedResult, setEnhancedResult] = useState<any>(null);
   const [storyboardResult, setStoryboardResult] = useState<any>(null);
   const [generatingStoryboard, setGeneratingStoryboard] = useState(false);
 
@@ -67,6 +70,9 @@ function CreateStudioContent() {
   const [activeGeneration, setActiveGeneration] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Paid Generation Confirmation Modal
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   // Load Initial Data: Projects & Providers
   useEffect(() => {
@@ -76,7 +82,6 @@ function CreateStudioContent() {
       if (res.items.length > 0) {
         setSelectedProjectId(res.items[0].id);
       } else {
-        // Create a default project if user has none
         api.projects.create({ title: "My First Cinematic Project" }).then((newProj) => {
           setProjects([newProj]);
           setSelectedProjectId(newProj.id);
@@ -134,6 +139,10 @@ function CreateStudioContent() {
     try {
       const asset = await api.assets.upload(file, selectedProjectId);
       setUploadedAsset(asset);
+      // If prompt is empty, suggest default motion
+      if (!prompt.trim()) {
+        setPrompt("Cinematic camera push-in, subtle breathing motion, photorealistic 4k detail");
+      }
     } catch (err: any) {
       setError(err.message || "Failed to upload input image.");
     } finally {
@@ -148,7 +157,6 @@ function CreateStudioContent() {
     setError(null);
     try {
       const res = await api.prompt.enhance(prompt);
-      setEnhancedResult(res);
       setPrompt(res.enhanced_prompt);
     } catch (err: any) {
       setError("Prompt enhancement failed. Using standard prompt.");
@@ -172,12 +180,19 @@ function CreateStudioContent() {
     }
   };
 
-  // Submit Video Generation
-  const handleGenerate = async () => {
-    if (!prompt.trim()) {
-      setError("Please enter a video prompt description.");
-      return;
+  // Trigger Confirmation or Immediate Execution
+  const onGenerateClick = () => {
+    let effectivePrompt = prompt.trim();
+    if (!effectivePrompt) {
+      if (mode === "image_to_video" && uploadedAsset) {
+        effectivePrompt = "Cinematic camera push-in, subtle natural motion, photorealistic 4k detail";
+        setPrompt(effectivePrompt);
+      } else {
+        setError("Please enter a video prompt description or select an inspiration preset.");
+        return;
+      }
     }
+
     if (mode === "image_to_video" && !uploadedAsset) {
       setError("Please upload an input frame image for Image-to-Video mode.");
       return;
@@ -187,6 +202,19 @@ function CreateStudioContent() {
       return;
     }
 
+    // If Replicate is selected, require explicit user confirmation to prevent unintended charges
+    if (selectedProvider === "replicate") {
+      setShowConfirmModal(true);
+    } else {
+      executeGeneration(effectivePrompt);
+    }
+  };
+
+  // Submit Video Generation
+  const executeGeneration = async (overridePrompt?: string) => {
+    setShowConfirmModal(false);
+    const finalPrompt = (overridePrompt || prompt).trim();
+
     setSubmitting(true);
     setError(null);
 
@@ -194,7 +222,7 @@ function CreateStudioContent() {
       const idempotencyKey = `cine_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const res = await api.generations.create({
         project_id: selectedProjectId,
-        prompt: prompt.trim(),
+        prompt: finalPrompt,
         negative_prompt: negativePrompt.trim() || undefined,
         generation_type: mode,
         provider_name: selectedProvider,
@@ -214,6 +242,17 @@ function CreateStudioContent() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Switch to Mock Provider & Retry
+  const handleSwitchToMockAndRetry = async () => {
+    setSelectedProvider("mock");
+    setSelectedModel("cineforge-mock-v1");
+    setError(null);
+    setActiveGeneration(null);
+    setTimeout(() => {
+      executeGeneration();
+    }, 100);
   };
 
   // Cancel Generation
@@ -245,6 +284,15 @@ function CreateStudioContent() {
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cine-800/80 border border-cine-700 text-gold-400 font-mono text-[10px] font-semibold">
               4K Neural Motion
             </span>
+            {selectedProvider === "replicate" ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono text-[10px] font-semibold">
+                Cloud: Replicate Live
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 font-mono text-[10px] font-semibold">
+                Free Mock Mode ($0.00)
+              </span>
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
             <Film className="w-6 h-6 text-gold-400" /> Cinema Generation Studio
@@ -317,7 +365,7 @@ function CreateStudioContent() {
 
           {/* Image Upload Area for Image-to-Video */}
           {mode === "image_to_video" && (
-            <div className="p-4 rounded-lg border border-dashed border-cine-700 bg-cine-900/40 text-center space-y-3">
+            <div className="p-4 rounded-xl border border-dashed border-cine-700 bg-cine-900/40 text-center space-y-3">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -326,35 +374,44 @@ function CreateStudioContent() {
                 className="hidden"
               />
               {uploadedAsset ? (
-                <div className="flex items-center justify-between p-3 bg-cine-900 rounded-md border border-cine-700">
+                <div className="flex items-center justify-between p-3.5 bg-cine-900/90 rounded-xl border border-teal-500/30">
                   <div className="flex items-center gap-3">
                     <img
                       src={uploadedAsset.download_url}
                       alt="Uploaded frame"
-                      className="w-12 h-12 object-cover rounded border border-cine-700"
+                      className="w-14 h-14 object-cover rounded-lg border border-teal-500/40 shadow-md"
                     />
                     <div className="text-left">
                       <p className="text-xs font-semibold text-cine-100">{uploadedAsset.original_filename}</p>
-                      <p className="text-[10px] text-cine-400 font-mono">
-                        {uploadedAsset.width}x{uploadedAsset.height} px • {(uploadedAsset.file_size_bytes / 1024).toFixed(1)} KB
+                      <p className="text-[10px] text-teal-400 font-mono mt-0.5">
+                        {uploadedAsset.width}x{uploadedAsset.height} px • {(uploadedAsset.file_size_bytes / 1024).toFixed(1)} KB • Validated
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-gold-400 hover:underline font-mono"
-                  >
-                    Replace Image
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-xs text-gold-400 hover:underline font-mono px-2 py-1"
+                    >
+                      Replace Image
+                    </button>
+                    <button
+                      onClick={() => setUploadedAsset(null)}
+                      className="text-xs text-rose-400 hover:text-rose-300 font-mono p-1"
+                      title="Remove image"
+                    >
+                      <XCircle className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="cursor-pointer py-6 flex flex-col items-center justify-center text-cine-400 hover:text-cine-200 transition-colors"
+                  className="cursor-pointer py-8 flex flex-col items-center justify-center text-cine-400 hover:text-cine-200 transition-colors"
                 >
-                  <UploadCloud className="w-8 h-8 mb-2 text-teal-400" />
-                  <p className="text-xs font-semibold">Click to upload conditioning start frame</p>
-                  <p className="text-[10px] text-cine-500 mt-1 font-mono">PNG, JPG, or WEBP (Max 50MB)</p>
+                  <UploadCloud className="w-10 h-10 mb-2 text-teal-400 animate-bounce" />
+                  <p className="text-xs font-semibold text-white">Click or drag & drop conditioning start frame</p>
+                  <p className="text-[10px] text-cine-500 mt-1 font-mono">PNG, JPG, or WEBP (Max 50MB, dimensions up to 4K)</p>
                   {uploadingImage && <Loader2 className="w-4 h-4 animate-spin text-gold-400 mt-2" />}
                 </div>
               )}
@@ -364,7 +421,9 @@ function CreateStudioContent() {
           {/* Prompt Editor */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-mono uppercase text-cine-400">Cinematic Prompt</label>
+              <label className="text-xs font-mono uppercase text-cine-400">
+                {mode === "image_to_video" ? "Motion Prompt (Optional)" : "Cinematic Scene Prompt"}
+              </label>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -390,42 +449,80 @@ function CreateStudioContent() {
               rows={4}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe your scene: e.g. An ancient brass observatory clockwork ticking under aurora borealis, anamorphic lens, 35mm grain, volumetric light..."
+              placeholder={
+                mode === "image_to_video"
+                  ? "Describe motion: e.g. Cinematic camera push-in, subtle breathing motion, dust motes in lighting, 35mm film grain..."
+                  : "Describe your scene: e.g. An ancient brass observatory clockwork ticking under aurora borealis, anamorphic lens, 35mm grain, volumetric light..."
+              }
               className="w-full p-3 bg-cine-900 border border-cine-700 rounded-md text-sm text-cine-100 placeholder:text-cine-600 focus:outline-none focus:border-gold-400 focus:ring-1 focus:ring-gold-400 leading-relaxed font-sans"
             />
 
-            {/* Quick Inspiration Prompts */}
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <span className="text-[10px] font-mono text-cine-500 uppercase tracking-wider mr-1">Inspirations:</span>
-              <button
-                type="button"
-                onClick={() => setPrompt("Cyberpunk alley in heavy neon rain, holographic advertisements reflecting on wet asphalt, hooded runner dashing past steam vents, 35mm anamorphic lens flare, 8k")}
-                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
-              >
-                🌧️ Neo-Tokyo Rain
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrompt("Cinematic wide shot of an orbital scientific station rotating above the dense amber atmosphere of Titan, methane sea glinting under distant sunlight, 8k photorealistic")}
-                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
-              >
-                🚀 Orbital Relay
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrompt("Intimate macro shot of an elderly artisan with magnifying loupe adjusting brass escapement gears in candlelit workshop, dust motes dancing in warm light, 35mm film grain")}
-                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
-              >
-                🕰️ Clockmaker Macro
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrompt("Breathtaking FPV drone sweep descending over steaming basalt lava flows meeting the frozen Atlantic ocean, vibrant emerald aurora borealis overhead, 8k")}
-                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
-              >
-                🌋 Icelandic Volcano
-              </button>
-            </div>
+            {/* Quick Inspiration Pills */}
+            {mode === "image_to_video" ? (
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                <span className="text-[10px] font-mono text-teal-400 uppercase tracking-wider mr-1">Motion Presets:</span>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Cinematic slow camera push-in zoom with shallow depth of field, dramatic atmospheric lighting")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-teal-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🎥 Camera Zoom In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Subtle natural breathing movement, ambient studio lighting, living portrait animation")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-teal-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🌊 Subtle Motion
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Slow orbiting 3D camera pan around subject, volumetric cinematic rim light, photorealistic")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-teal-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  💫 Orbit 3D Pan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Dynamic cinematic motion, smooth natural physics, 4k ultra-detailed rendering")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-teal-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  ⚡ Dynamic Action
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                <span className="text-[10px] font-mono text-gold-400 uppercase tracking-wider mr-1">Inspirations:</span>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Cyberpunk alley in heavy neon rain, holographic advertisements reflecting on wet asphalt, hooded runner dashing past steam vents, 35mm anamorphic lens flare, 8k")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🌧️ Neo-Tokyo Rain
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Cinematic wide shot of an orbital scientific station rotating above the dense amber atmosphere of Titan, methane sea glinting under distant sunlight, 8k photorealistic")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🚀 Orbital Relay
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Intimate macro shot of an elderly artisan with magnifying loupe adjusting brass escapement gears in candlelit workshop, dust motes dancing in warm light, 35mm film grain")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🕰️ Clockmaker Macro
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrompt("Breathtaking FPV drone sweep descending over steaming basalt lava flows meeting the frozen Atlantic ocean, vibrant emerald aurora borealis overhead, 8k")}
+                  className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+                >
+                  🌋 Icelandic Volcano
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Negative Prompt */}
@@ -457,7 +554,9 @@ function CreateStudioContent() {
               >
                 {providers.map((p) => (
                   <option key={p.provider_name} value={p.provider_name}>
-                    {p.provider_name.toUpperCase()} {p.is_configured ? "• Active" : "(Demo/Mock)"}
+                    {p.provider_name === "replicate"
+                      ? "Replicate AI Cloud (Live Models)"
+                      : "Deterministic Mock Provider (Free Local Testing)"}
                   </option>
                 ))}
               </select>
@@ -486,12 +585,16 @@ function CreateStudioContent() {
               <select
                 value={aspectRatio}
                 onChange={(e) => setAspectRatio(e.target.value)}
-                className="w-full bg-cine-900 border border-cine-700 rounded-md p-2 text-xs text-cine-200 focus:outline-none focus:border-gold-400"
+                disabled={mode === "image_to_video"}
+                className="w-full bg-cine-900 border border-cine-700 rounded-md p-2 text-xs text-cine-200 focus:outline-none focus:border-gold-400 disabled:opacity-40"
               >
                 <option value="16:9">16:9 Landscape</option>
                 <option value="9:16">9:16 Vertical</option>
                 <option value="1:1">1:1 Square</option>
               </select>
+              {mode === "image_to_video" && (
+                <span className="text-[10px] text-cine-500 font-mono block">Inherited from frame</span>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -520,17 +623,21 @@ function CreateStudioContent() {
           </div>
 
           {/* Cost Estimate & Generate Button */}
-          <div className="p-4 rounded-lg bg-cine-900 border border-cine-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="p-4 rounded-xl bg-cine-900/90 border border-cine-800 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
             <div>
               <span className="text-xs font-mono text-cine-400 uppercase block">Estimated Cost:</span>
-              <span className="text-lg font-bold font-mono text-gold-400">${estimatedCost.toFixed(3)} USD</span>
-              <span className="text-[10px] text-cine-500 block font-mono">Transparent catalog calculation</span>
+              <span className="text-lg font-bold font-mono text-gold-400">
+                {selectedProvider === "mock" ? "$0.000 (Free Mock)" : `$${estimatedCost.toFixed(3)} USD`}
+              </span>
+              <span className="text-[10px] text-cine-500 block font-mono">
+                {selectedProvider === "mock" ? "Deterministic local pipeline" : "Replicate cloud catalog calculation"}
+              </span>
             </div>
 
             <button
-              onClick={handleGenerate}
+              onClick={onGenerateClick}
               disabled={submitting || (activeGeneration && !["SUCCEEDED", "FAILED", "CANCELLED"].includes(activeGeneration.status))}
-              className="w-full sm:w-auto px-8 py-3 rounded-md bg-gold-500 hover:bg-gold-400 text-cine-950 font-bold text-sm tracking-wide shadow-lg shadow-gold-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full sm:w-auto px-8 py-3 rounded-xl bg-gradient-to-r from-gold-500 to-amber-500 hover:from-gold-400 hover:to-amber-400 text-cine-950 font-bold text-sm tracking-wide shadow-lg shadow-gold-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {submitting ? (
                 <>
@@ -567,30 +674,35 @@ function CreateStudioContent() {
               )}
             </div>
 
-            <div className="p-6 flex flex-col items-center justify-center min-h-[340px] text-center">
+            <div className="p-6 flex flex-col items-center justify-center min-h-[360px] text-center">
               {activeGeneration ? (
                 <div className="w-full space-y-4">
                   {/* Progress Bar if processing */}
                   {!["SUCCEEDED", "FAILED", "CANCELLED"].includes(activeGeneration.status) && (
-                    <div className="space-y-2">
-                      <div className="w-12 h-12 rounded-full bg-gold-500/10 border border-gold-500/30 flex items-center justify-center mx-auto text-gold-400 animate-spin">
-                        <RefreshCw className="w-6 h-6" />
+                    <div className="space-y-3">
+                      <div className="w-14 h-14 rounded-full bg-gold-500/10 border border-gold-500/30 flex items-center justify-center mx-auto text-gold-400 animate-spin">
+                        <RefreshCw className="w-7 h-7" />
                       </div>
-                      <p className="text-sm font-semibold text-cine-100">Synthesizing Video...</p>
+                      <p className="text-sm font-semibold text-cine-100">
+                        {activeGeneration.status === "QUEUED" && "Job Queued in Scheduler..."}
+                        {activeGeneration.status === "SUBMITTED" && "Submitted to AI Provider..."}
+                        {activeGeneration.status === "PROCESSING" && "Synthesizing Neural Frames..."}
+                        {activeGeneration.status === "DOWNLOADING" && "Downloading & Persisting MP4..."}
+                      </p>
                       <p className="text-xs text-cine-400 font-mono">
                         Job: {activeGeneration.provider_job_id || activeGeneration.id.slice(0, 8)}
                       </p>
 
-                      <div className="w-full bg-cine-950 rounded-full h-2 border border-cine-800 overflow-hidden">
+                      <div className="w-full bg-cine-950 rounded-full h-2.5 border border-cine-800 overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-gold-500 to-teal-400 h-full transition-all duration-500"
-                          style={{ width: `${activeGeneration.progress_percent || 25}%` }}
+                          className="bg-gradient-to-r from-gold-500 via-amber-400 to-teal-400 h-full transition-all duration-500"
+                          style={{ width: `${activeGeneration.progress_percent || 20}%` }}
                         />
                       </div>
 
                       <button
                         onClick={handleCancel}
-                        className="text-xs text-red-400 hover:text-red-300 font-mono underline pt-2"
+                        className="text-xs text-rose-400 hover:text-rose-300 font-mono underline pt-2 inline-block"
                       >
                         Cancel Task
                       </button>
@@ -600,7 +712,7 @@ function CreateStudioContent() {
                   {/* Succeeded Video Player */}
                   {activeGeneration.status === "SUCCEEDED" && (
                     <div className="space-y-4">
-                      <div className="rounded-lg overflow-hidden border border-cine-700 bg-black aspect-video relative">
+                      <div className="rounded-xl overflow-hidden border border-cine-700 bg-black aspect-video relative shadow-2xl">
                         <video
                           controls
                           autoPlay
@@ -610,38 +722,87 @@ function CreateStudioContent() {
                         />
                       </div>
 
-                      <div className="flex items-center justify-between text-xs font-mono p-2 bg-cine-950 rounded border border-cine-800">
-                        <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Generation Complete
+                      <div className="flex items-center justify-between text-xs font-mono p-3 bg-cine-950 rounded-xl border border-cine-800">
+                        <span className="text-emerald-400 flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="w-4 h-4" /> Generation Complete
                         </span>
                         <a
                           href={getVideoAssetUrl(activeGeneration.owner_id, activeGeneration.id)}
                           download={`cineforge_${activeGeneration.id.slice(0, 8)}.mp4`}
-                          className="px-3 py-1 bg-gold-500 hover:bg-gold-400 text-cine-950 rounded font-bold flex items-center gap-1 transition-all"
+                          className="px-3 py-1.5 bg-gradient-to-r from-gold-500 to-amber-500 hover:from-gold-400 hover:to-amber-400 text-cine-950 rounded-lg font-bold flex items-center gap-1.5 transition-all shadow-md"
                         >
                           <Download className="w-3.5 h-3.5" /> Download MP4
                         </a>
                       </div>
+
+                      <div className="flex gap-2">
+                        <Link
+                          href="/generations"
+                          className="flex-1 py-2 text-center text-xs font-mono bg-cine-800 hover:bg-cine-700 text-cine-200 rounded-lg transition-colors border border-cine-700"
+                        >
+                          View in History
+                        </Link>
+                        <button
+                          onClick={() => setActiveGeneration(null)}
+                          className="px-3 py-2 text-xs font-mono bg-cine-900 hover:bg-cine-800 text-cine-400 hover:text-white rounded-lg transition-colors border border-cine-800"
+                        >
+                          New Video
+                        </button>
+                      </div>
                     </div>
                   )}
 
-                  {/* Failed State */}
+                  {/* Failed State with Contextual Actions */}
                   {activeGeneration.status === "FAILED" && (
-                    <div className="space-y-2 text-red-400">
-                      <AlertCircle className="w-10 h-10 mx-auto" />
-                      <p className="text-sm font-semibold">Generation Failed</p>
-                      <p className="text-xs text-cine-400 max-w-xs mx-auto">
-                        {activeGeneration.safe_error_message || "External provider encountered an error."}
-                      </p>
+                    <div className="space-y-4 text-center">
+                      <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-rose-300">Generation Failed</p>
+                        <p className="text-xs text-cine-400 max-w-sm mx-auto mt-1 leading-relaxed">
+                          {activeGeneration.safe_error_message || "Video generation was interrupted or rejected by provider."}
+                        </p>
+                      </div>
+
+                      {/* If Insufficient Credit */}
+                      {activeGeneration.safe_error_message?.toLowerCase().includes("credit") && (
+                        <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2 text-xs">
+                          <p className="text-amber-200 font-medium">Replicate GPU Billing Required for Live Cloud Mode</p>
+                          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                            <a
+                              href="https://replicate.com/account/billing#billing"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-cine-950 font-bold rounded-lg flex items-center justify-center gap-1"
+                            >
+                              Add Replicate Credits <ExternalLink className="w-3 h-3" />
+                            </a>
+                            <button
+                              onClick={handleSwitchToMockAndRetry}
+                              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg flex items-center justify-center gap-1"
+                            >
+                              <RotateCcw className="w-3 h-3" /> Switch to Free Mock & Generate
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => setActiveGeneration(null)}
+                        className="text-xs text-cine-400 hover:text-white font-mono underline"
+                      >
+                        Dismiss and configure new scene
+                      </button>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="space-y-2 text-cine-500">
+                <div className="space-y-3 text-cine-500">
                   <Play className="w-12 h-12 mx-auto stroke-1 text-cine-600" />
                   <p className="text-sm font-medium text-cine-400">Ready for Synthesis</p>
-                  <p className="text-xs max-w-xs">
-                    Configure your scene prompt and click Generate Video to launch the rendering queue.
+                  <p className="text-xs max-w-xs leading-relaxed">
+                    Configure your scene prompt or frame, then click <strong className="text-gold-400">Generate Video</strong> to launch the AI rendering pipeline.
                   </p>
                 </div>
               )}
@@ -650,13 +811,13 @@ function CreateStudioContent() {
 
           {/* Storyboard Card if generated */}
           {storyboardResult && (
-            <div className="p-4 rounded-lg border border-cine-800 bg-cine-900/60 space-y-3">
+            <div className="p-4 rounded-xl border border-cine-800 bg-cine-900/60 space-y-3">
               <h4 className="text-xs font-mono uppercase text-teal-400 font-semibold flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5" /> Synthesized 3-Scene Storyboard
               </h4>
               <div className="space-y-2 text-xs">
                 {storyboardResult.scenes.map((sc: any) => (
-                  <div key={sc.scene_number} className="p-2.5 rounded bg-cine-950 border border-cine-800 text-left">
+                  <div key={sc.scene_number} className="p-2.5 rounded-lg bg-cine-950 border border-cine-800 text-left">
                     <span className="text-gold-400 font-semibold block">{sc.title}</span>
                     <p className="text-cine-300 mt-1">{sc.visual_prompt}</p>
                     <div className="flex gap-3 text-[10px] text-cine-500 mt-1 font-mono">
@@ -670,6 +831,61 @@ function CreateStudioContent() {
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal for Paid Replicate Inference */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-cine-900 border border-cine-700 max-w-md w-full rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Confirm Live AI Cloud Generation</h3>
+                <p className="text-xs text-cine-400">Replicate GPU compute session</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-cine-950 border border-cine-800 text-xs space-y-2">
+              <div className="flex justify-between text-cine-300">
+                <span>Model:</span>
+                <span className="font-mono text-gold-400 font-bold">{currentModelSpec?.display_name || selectedModel}</span>
+              </div>
+              <div className="flex justify-between text-cine-300">
+                <span>Mode:</span>
+                <span className="font-mono text-cine-100">{mode === "image_to_video" ? "Image-to-Video" : "Text-to-Video"}</span>
+              </div>
+              <div className="flex justify-between text-cine-300">
+                <span>Estimated Cost:</span>
+                <span className="font-mono text-gold-400 font-bold">${estimatedCost.toFixed(3)} USD</span>
+              </div>
+              <div className="flex justify-between text-cine-300">
+                <span>Provider Account:</span>
+                <span className="font-mono text-emerald-400">Connected</span>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-cine-400 leading-relaxed">
+              This request will be sent to Replicate&apos;s cloud infrastructure. If your Replicate account has billing credits, it will deduct according to provider rates.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-cine-800 hover:bg-cine-700 text-cine-300 font-semibold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => executeGeneration()}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-gold-500 to-amber-500 hover:from-gold-400 hover:to-amber-400 text-cine-950 font-bold text-xs transition-all shadow-lg shadow-gold-500/20"
+              >
+                Confirm & Launch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -681,4 +897,3 @@ export default function CreateStudioPage() {
     </React.Suspense>
   );
 }
-

@@ -17,6 +17,10 @@ class ProviderRateLimitError(ProviderError):
     pass
 
 
+class ProviderInsufficientCreditError(ProviderError):
+    pass
+
+
 class ProviderJobFailedError(ProviderError):
     pass
 

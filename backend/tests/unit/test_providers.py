@@ -5,7 +5,11 @@ import pytest
 from app.core.exceptions import ValidationException
 from app.providers.adapters.mock_provider import MockVideoProvider
 from app.providers.adapters.replicate_provider import ReplicateVideoProvider
-from app.providers.errors import ProviderAuthError, ProviderRateLimitError
+from app.providers.errors import (
+    ProviderAuthError,
+    ProviderInsufficientCreditError,
+    ProviderRateLimitError,
+)
 from app.providers.schemas import VideoGenerationRequest
 
 
@@ -172,3 +176,46 @@ async def test_replicate_adapter_http_lifecycle():
     with patch("httpx.AsyncClient.post", return_value=mock_post_429):
         with pytest.raises(ProviderRateLimitError):
             await provider.submit_generation(req)
+
+    # 6. Mock Error: HTTP 402 Insufficient Credit
+    mock_post_402 = MagicMock()
+    mock_post_402.status_code = 402
+    mock_post_402.text = '{"title":"Insufficient credit"}'
+    with patch("httpx.AsyncClient.post", return_value=mock_post_402):
+        with pytest.raises(ProviderInsufficientCreditError):
+            await provider.submit_generation(req)
+
+
+@pytest.mark.asyncio
+async def test_replicate_image_to_video_files_upload():
+    provider = ReplicateVideoProvider(api_token="r8_test_valid_mock_token_123456")
+
+    # Mock file upload to Replicate files API
+    mock_files_res = MagicMock()
+    mock_files_res.status_code = 201
+    mock_files_res.json.return_value = {
+        "id": "file_123456",
+        "urls": {"get": "https://api.replicate.com/v1/files/sample_cdn_image.jpg"},
+    }
+
+    mock_post_pred = MagicMock()
+    mock_post_pred.status_code = 201
+    mock_post_pred.json.return_value = {
+        "id": "pred_img2vid_12345",
+        "status": "starting",
+    }
+
+    with patch("httpx.AsyncClient.post", side_effect=[mock_files_res, mock_post_pred]):
+        req = VideoGenerationRequest(
+            generation_id="gen-img2vid-01",
+            prompt="Cinematic zoom in on character portrait",
+            generation_type="image_to_video",
+            model_id="minimax-video-01",
+            aspect_ratio="16:9",
+            duration_seconds=5,
+            input_image_url="data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+        )
+        job = await provider.submit_generation(req)
+        assert job.provider_job_id == "pred_img2vid_12345"
+        assert job.status == "SUBMITTED"
+

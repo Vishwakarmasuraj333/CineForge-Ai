@@ -17,6 +17,12 @@ from app.models.asset import Asset
 from app.models.generation import Generation
 from app.models.project import Project
 from app.models.usage_record import UsageRecord
+from app.providers.errors import (
+    ProviderAuthError,
+    ProviderError,
+    ProviderInsufficientCreditError,
+    ProviderRateLimitError,
+)
 from app.providers.registry import provider_registry
 from app.providers.schemas import VideoGenerationRequest
 from app.schemas.generation import GenerationCreateRequest
@@ -159,121 +165,158 @@ class GenerationService:
         provider = provider_registry.get_provider(gen.provider_name)
         now = datetime.now(timezone.utc)
 
-        if gen.status == "QUEUED":
-            # Submit to provider
-            params = gen.parameters_json or {}
-            input_url = None
-            if gen.input_asset_id:
-                asset_res = await self.db.execute(
-                    select(Asset).where(Asset.id == gen.input_asset_id)
+        try:
+            if gen.status == "QUEUED":
+                # Submit to provider
+                params = gen.parameters_json or {}
+                input_url = None
+                if gen.input_asset_id:
+                    asset_res = await self.db.execute(
+                        select(Asset).where(Asset.id == gen.input_asset_id)
+                    )
+                    asset = asset_res.scalar_one_or_none()
+                    if asset:
+                        if getattr(self.storage, "backend_type", "local") == "local":
+                            # Convert local asset to base64 Data URI for cloud provider compatibility
+                            file_bytes = await self.storage.get_bytes(asset.storage_key)
+                            mime = asset.mime_type or "image/jpeg"
+                            b64 = base64.b64encode(file_bytes).decode("utf-8")
+                            input_url = f"data:{mime};base64,{b64}"
+                        else:
+                            input_url = await self.storage.get_download_url(asset.storage_key)
+
+                req = VideoGenerationRequest(
+                    generation_id=gen.id,
+                    prompt=gen.prompt,
+                    negative_prompt=gen.negative_prompt,
+                    generation_type=gen.generation_type,
+                    model_id=gen.provider_model_id,
+                    aspect_ratio=params.get("aspect_ratio", "16:9"),
+                    duration_seconds=params.get("duration_seconds", 5),
+                    resolution=params.get("resolution", "720p"),
+                    fps=params.get("fps", 24),
+                    seed=params.get("seed"),
+                    input_image_url=input_url,
                 )
-                asset = asset_res.scalar_one_or_none()
-                if asset:
-                    if getattr(self.storage, "backend_type", "local") == "local":
-                        # Convert local asset to base64 Data URI for cloud provider compatibility
-                        file_bytes = await self.storage.get_bytes(asset.storage_key)
-                        mime = asset.mime_type or "image/jpeg"
-                        b64 = base64.b64encode(file_bytes).decode("utf-8")
-                        input_url = f"data:{mime};base64,{b64}"
-                    else:
-                        input_url = await self.storage.get_download_url(asset.storage_key)
 
-            req = VideoGenerationRequest(
-                generation_id=gen.id,
-                prompt=gen.prompt,
-                negative_prompt=gen.negative_prompt,
-                generation_type=gen.generation_type,
-                model_id=gen.provider_model_id,
-                aspect_ratio=params.get("aspect_ratio", "16:9"),
-                duration_seconds=params.get("duration_seconds", 5),
-                resolution=params.get("resolution", "720p"),
-                fps=params.get("fps", 24),
-                seed=params.get("seed"),
-                input_image_url=input_url,
-            )
+                job_status = await provider.submit_generation(req)
+                gen.provider_job_id = job_status.provider_job_id
+                gen.status = job_status.status
+                gen.progress_percent = job_status.progress_percent or 10
+                gen.started_at = now
+                await self.db.commit()
+                return gen
 
-            job_status = await provider.submit_generation(req)
-            gen.provider_job_id = job_status.provider_job_id
-            gen.status = job_status.status
-            gen.progress_percent = job_status.progress_percent or 10
-            gen.started_at = now
+            elif gen.status in ["SUBMITTED", "PROCESSING"]:
+                if not gen.provider_job_id:
+                    gen.status = "FAILED"
+                    gen.safe_error_message = "Missing provider job identifier."
+                    await self.db.commit()
+                    return gen
+
+                job_status = await provider.get_generation_status(gen.provider_job_id)
+                gen.progress_percent = job_status.progress_percent or gen.progress_percent
+
+                if job_status.status == "SUCCEEDED" and job_status.output_video_url:
+                    gen.status = "DOWNLOADING"
+                    await self.db.commit()
+
+                    # Download video payload
+                    video_bytes = await provider.download_output(job_status.output_video_url)
+                    storage_key = f"users/{gen.owner_id}/videos/{gen.id}.mp4"
+                    await self.storage.save(video_bytes, storage_key, "video/mp4")
+
+                    # Create video asset record
+                    asset = Asset(
+                        owner_id=gen.owner_id,
+                        project_id=gen.project_id,
+                        generation_id=gen.id,
+                        asset_type="generated_video",
+                        storage_key=storage_key,
+                        original_filename=f"{gen.id}.mp4",
+                        mime_type="video/mp4",
+                        file_size_bytes=len(video_bytes),
+                        checksum=calculate_sha256(video_bytes),
+                        duration_seconds=float((gen.parameters_json or {}).get("duration_seconds", 5)),
+                    )
+                    self.db.add(asset)
+
+                    # Record usage ledger
+                    duration_sec = float((gen.parameters_json or {}).get("duration_seconds", 5))
+                    usage = UsageRecord(
+                        owner_id=gen.owner_id,
+                        generation_id=gen.id,
+                        provider_name=gen.provider_name,
+                        model_id=gen.provider_model_id,
+                        usage_type="video_seconds",
+                        units=duration_sec,
+                        estimated_amount=gen.estimated_cost,
+                        actual_amount=gen.estimated_cost,
+                        currency="USD",
+                        pricing_source="provider_catalog",
+                    )
+                    self.db.add(usage)
+
+                    gen.status = "SUCCEEDED"
+                    gen.actual_cost = gen.estimated_cost
+                    gen.progress_percent = 100
+                    gen.completed_at = datetime.now(timezone.utc)
+                    await self.db.commit()
+                    return gen
+
+                elif job_status.status == "FAILED":
+                    gen.status = "FAILED"
+                    gen.error_code = job_status.error_code or "PROVIDER_ERROR"
+                    gen.safe_error_message = job_status.error_message or "Video generation failed at provider."
+                    gen.completed_at = datetime.now(timezone.utc)
+                    await self.db.commit()
+                    return gen
+
+                elif job_status.status == "CANCELLED":
+                    gen.status = "CANCELLED"
+                    gen.completed_at = datetime.now(timezone.utc)
+                    await self.db.commit()
+                    return gen
+                else:
+                    gen.status = job_status.status
+                    await self.db.commit()
+                    return gen
+
+        except ProviderInsufficientCreditError as e:
+            gen.status = "FAILED"
+            gen.error_code = "INSUFFICIENT_CREDIT"
+            gen.safe_error_message = str(e.message)
+            gen.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
             return gen
-
-        elif gen.status in ["SUBMITTED", "PROCESSING"]:
-            if not gen.provider_job_id:
-                gen.status = "FAILED"
-                gen.safe_error_message = "Missing provider job identifier."
-                await self.db.commit()
-                return gen
-
-            job_status = await provider.get_generation_status(gen.provider_job_id)
-            gen.progress_percent = job_status.progress_percent or gen.progress_percent
-
-            if job_status.status == "SUCCEEDED" and job_status.output_video_url:
-                gen.status = "DOWNLOADING"
-                await self.db.commit()
-
-                # Download video payload
-                video_bytes = await provider.download_output(job_status.output_video_url)
-                storage_key = f"users/{gen.owner_id}/videos/{gen.id}.mp4"
-                await self.storage.save(video_bytes, storage_key, "video/mp4")
-
-                # Create video asset record
-                asset = Asset(
-                    owner_id=gen.owner_id,
-                    project_id=gen.project_id,
-                    generation_id=gen.id,
-                    asset_type="generated_video",
-                    storage_key=storage_key,
-                    original_filename=f"{gen.id}.mp4",
-                    mime_type="video/mp4",
-                    file_size_bytes=len(video_bytes),
-                    checksum=calculate_sha256(video_bytes),
-                    duration_seconds=float((gen.parameters_json or {}).get("duration_seconds", 5)),
-                )
-                self.db.add(asset)
-
-                # Record usage ledger
-                duration_sec = float((gen.parameters_json or {}).get("duration_seconds", 5))
-                usage = UsageRecord(
-                    owner_id=gen.owner_id,
-                    generation_id=gen.id,
-                    provider_name=gen.provider_name,
-                    model_id=gen.provider_model_id,
-                    usage_type="video_seconds",
-                    units=duration_sec,
-                    estimated_amount=gen.estimated_cost,
-                    actual_amount=gen.estimated_cost,
-                    currency="USD",
-                    pricing_source="provider_catalog",
-                )
-                self.db.add(usage)
-
-                gen.status = "SUCCEEDED"
-                gen.actual_cost = gen.estimated_cost
-                gen.progress_percent = 100
-                gen.completed_at = datetime.now(timezone.utc)
-                await self.db.commit()
-                return gen
-
-            elif job_status.status == "FAILED":
-                gen.status = "FAILED"
-                gen.error_code = job_status.error_code or "PROVIDER_ERROR"
-                gen.safe_error_message = job_status.error_message or "Video generation failed at provider."
-                gen.completed_at = datetime.now(timezone.utc)
-                await self.db.commit()
-                return gen
-
-            elif job_status.status == "CANCELLED":
-                gen.status = "CANCELLED"
-                gen.completed_at = datetime.now(timezone.utc)
-                await self.db.commit()
-                return gen
-            else:
-                gen.status = job_status.status
-                await self.db.commit()
-                return gen
+        except ProviderAuthError as e:
+            gen.status = "FAILED"
+            gen.error_code = "PROVIDER_AUTH_ERROR"
+            gen.safe_error_message = "Provider authentication failed. Check your API credentials."
+            gen.completed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            return gen
+        except ProviderRateLimitError as e:
+            gen.status = "FAILED"
+            gen.error_code = "RATE_LIMIT_EXCEEDED"
+            gen.safe_error_message = "Provider rate limit or quota exceeded. Please retry in a few moments."
+            gen.completed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            return gen
+        except ValidationException as e:
+            gen.status = "FAILED"
+            gen.error_code = "VALIDATION_FAILED"
+            gen.safe_error_message = str(e.message)
+            gen.completed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            return gen
+        except Exception as e:
+            gen.status = "FAILED"
+            gen.error_code = "PROVIDER_EXECUTION_ERROR"
+            gen.safe_error_message = f"Provider error: {str(e)}"
+            gen.completed_at = datetime.now(timezone.utc)
+            await self.db.commit()
+            return gen
 
         return gen
 

@@ -1,11 +1,18 @@
+import base64
 from typing import Dict, Optional
 
 import httpx
 
 from app.core.config import settings
 from app.core.exceptions import ValidationException
+from app.core.logging import logger
 from app.providers.base import BaseVideoProvider
-from app.providers.errors import ProviderAuthError, ProviderError, ProviderRateLimitError
+from app.providers.errors import (
+    ProviderAuthError,
+    ProviderError,
+    ProviderInsufficientCreditError,
+    ProviderRateLimitError,
+)
 from app.providers.schemas import (
     ProviderCapabilities,
     ProviderJobStatus,
@@ -19,11 +26,11 @@ REPLICATE_API_BASE = "https://api.replicate.com/v1"
 class ReplicateVideoProvider(BaseVideoProvider):
     """
     Production adapter for Replicate AI Video Generation API.
-    Supports Minimax Video-01, Kling-v1, CogVideoX, and Stable Video Diffusion.
+    Supports Minimax Video-01, Kuaishou Kling v4.0, and CogVideoX 5B.
     """
 
     def __init__(self, api_token: Optional[str] = None):
-        self.api_token = api_token or settings.REPLICATE_API_TOKEN
+        self.api_token = api_token if api_token is not None else settings.REPLICATE_API_TOKEN
 
     @property
     def provider_name(self) -> str:
@@ -51,7 +58,7 @@ class ReplicateVideoProvider(BaseVideoProvider):
                 ),
                 ProviderModelSpec(
                     model_id="kling-v1-standard",
-                    display_name="Kling v1 Standard",
+                    display_name="Kuaishou Kling v4.0 / Standard (Cinematic)",
                     supports_text_to_video=True,
                     supports_image_to_video=True,
                     supported_aspect_ratios=["16:9", "9:16", "1:1"],
@@ -84,16 +91,27 @@ class ReplicateVideoProvider(BaseVideoProvider):
 
         caps = self.get_capabilities()
         model_map = {m.model_id: m for m in caps.models}
-        if request.model_id not in model_map:
-            raise ValidationException(f"Unsupported model '{request.model_id}' on Replicate.")
+        # Also allow raw Replicate model IDs
+        normalized_id = request.model_id.lower().replace("/", "-")
+        if request.model_id not in model_map and normalized_id not in model_map:
+            # Check for partial matches
+            matched = False
+            for m_id in model_map:
+                if m_id in normalized_id or normalized_id in m_id:
+                    matched = True
+                    break
+            if not matched:
+                raise ValidationException(f"Unsupported model '{request.model_id}' on Replicate.")
 
-        spec = model_map[request.model_id]
-        if request.aspect_ratio not in spec.supported_aspect_ratios:
-            raise ValidationException(
-                f"Aspect ratio '{request.aspect_ratio}' is not supported by {spec.display_name}."
-            )
-        if request.generation_type == "image_to_video" and not spec.supports_image_to_video:
-            raise ValidationException(f"Model {spec.display_name} does not support image-to-video.")
+        # Find spec
+        spec = model_map.get(request.model_id) or model_map.get(normalized_id)
+        if spec:
+            if request.aspect_ratio not in spec.supported_aspect_ratios:
+                raise ValidationException(
+                    f"Aspect ratio '{request.aspect_ratio}' is not supported by {spec.display_name}."
+                )
+            if request.generation_type == "image_to_video" and not spec.supports_image_to_video:
+                raise ValidationException(f"Model {spec.display_name} does not support image-to-video.")
 
     def _get_headers(self) -> Dict[str, str]:
         return {
@@ -102,25 +120,71 @@ class ReplicateVideoProvider(BaseVideoProvider):
             "User-Agent": "CineForge-AI/1.0.0",
         }
 
+    async def upload_file_to_replicate(
+        self, file_bytes: bytes, filename: str = "frame.jpg", mime_type: str = "image/jpeg"
+    ) -> Optional[str]:
+        """
+        Uploads an image asset to Replicate's managed file storage (POST /v1/files).
+        Returns a globally accessible URL reachable by Replicate models.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                files = {"content": (filename, file_bytes, mime_type)}
+                res = await client.post(
+                    f"{REPLICATE_API_BASE}/files",
+                    headers={"Authorization": f"Bearer {self.api_token}"},
+                    files=files,
+                )
+                if res.status_code == 201:
+                    data = res.json()
+                    uploaded_url = data.get("urls", {}).get("get")
+                    logger.info(f"Uploaded asset to Replicate Files CDN: {uploaded_url}")
+                    return uploaded_url
+                else:
+                    logger.warning(f"Replicate Files API returned status {res.status_code}: {res.text}")
+                    return None
+        except Exception as e:
+            logger.warning(f"Failed to upload asset to Replicate files API: {e}")
+            return None
+
     async def submit_generation(self, request: VideoGenerationRequest) -> ProviderJobStatus:
         self.validate_request(request)
 
         is_kling = "kling" in request.model_id.lower()
         is_cogvideo = "cogvideo" in request.model_id.lower()
 
+        # Handle image conditioning for image-to-video
+        image_url = request.input_image_url
+        if image_url and image_url.startswith("data:"):
+            # Extract binary and upload via Replicate Files API for direct CDN delivery
+            try:
+                header, b64data = image_url.split(",", 1)
+                mime = header.split(";")[0].replace("data:", "") or "image/jpeg"
+                img_bytes = base64.b64decode(b64data)
+                ext = "png" if "png" in mime else "jpg"
+                uploaded_cdn_url = await self.upload_file_to_replicate(
+                    img_bytes, f"input_frame.{ext}", mime
+                )
+                if uploaded_cdn_url:
+                    image_url = uploaded_cdn_url
+            except Exception as e:
+                logger.warning(f"Could not convert data URI to Replicate CDN file: {e}")
+
         input_payload: Dict[str, object] = {
             "prompt": request.prompt,
         }
 
         if is_kling:
-            url = f"{REPLICATE_API_BASE}/models/kwaivgi/kling-v1.6-standard/predictions"
+            url = f"{REPLICATE_API_BASE}/models/kwaivgi/kling-v4.0/predictions"
             input_payload["duration"] = request.duration_seconds
-            if request.aspect_ratio:
+            if request.resolution:
+                input_payload["resolution"] = request.resolution
+            if request.aspect_ratio and not image_url:
                 input_payload["aspect_ratio"] = request.aspect_ratio
             if request.negative_prompt:
                 input_payload["negative_prompt"] = request.negative_prompt
-            if request.input_image_url and request.generation_type == "image_to_video":
-                input_payload["start_image"] = request.input_image_url
+            if image_url and request.generation_type == "image_to_video":
+                input_payload["start_image"] = image_url
         elif is_cogvideo:
             url = f"{REPLICATE_API_BASE}/models/fofr/cogvideox-5b/predictions"
             if request.seed is not None:
@@ -129,8 +193,8 @@ class ReplicateVideoProvider(BaseVideoProvider):
             # Default: Minimax Video-01
             url = f"{REPLICATE_API_BASE}/models/minimax/video-01/predictions"
             input_payload["prompt_optimizer"] = True
-            if request.input_image_url and request.generation_type == "image_to_video":
-                input_payload["first_frame_image"] = request.input_image_url
+            if image_url and request.generation_type == "image_to_video":
+                input_payload["first_frame_image"] = image_url
             elif request.aspect_ratio:
                 input_payload["aspect_ratio"] = request.aspect_ratio
 
@@ -143,12 +207,22 @@ class ReplicateVideoProvider(BaseVideoProvider):
                 )
                 if response.status_code == 401:
                     raise ProviderAuthError("Invalid Replicate API token.", self.provider_name)
+                elif response.status_code == 402:
+                    raise ProviderInsufficientCreditError(
+                        "Replicate account has insufficient credits. Please add billing credits at https://replicate.com/account/billing or use the Deterministic Mock Provider for free offline generation.",
+                        self.provider_name,
+                        402,
+                    )
                 elif response.status_code == 422:
                     raise ValidationException(f"Replicate API unprocessable parameters: {response.text}")
                 elif response.status_code == 429:
                     raise ProviderRateLimitError("Replicate API rate limit or quota exceeded.", self.provider_name)
                 elif response.status_code >= 500:
-                    raise ProviderError(f"Replicate provider server error: HTTP {response.status_code}", self.provider_name, response.status_code)
+                    raise ProviderError(
+                        f"Replicate provider server error: HTTP {response.status_code}",
+                        self.provider_name,
+                        response.status_code,
+                    )
                 elif response.status_code >= 400:
                     raise ProviderError(
                         f"Replicate API error: {response.text}", self.provider_name, response.status_code
@@ -164,6 +238,8 @@ class ReplicateVideoProvider(BaseVideoProvider):
                     progress_percent=10,
                     raw_response=data,
                 )
+            except (ProviderAuthError, ProviderInsufficientCreditError, ProviderRateLimitError, ValidationException):
+                raise
             except httpx.RequestError as e:
                 raise ProviderError(f"Network error connecting to Replicate: {str(e)}", self.provider_name)
 
@@ -174,6 +250,10 @@ class ReplicateVideoProvider(BaseVideoProvider):
                 response = await client.get(url, headers=self._get_headers())
                 if response.status_code == 401:
                     raise ProviderAuthError("Invalid Replicate API token.", self.provider_name)
+                if response.status_code == 402:
+                    raise ProviderInsufficientCreditError(
+                        "Replicate account has insufficient credits.", self.provider_name, 402
+                    )
                 if response.status_code >= 400:
                     raise ProviderError(f"Failed to fetch job: {response.text}", self.provider_name)
 
@@ -220,6 +300,8 @@ class ReplicateVideoProvider(BaseVideoProvider):
                         error_message=str(error_msg),
                         raw_response=data,
                     )
+            except (ProviderAuthError, ProviderInsufficientCreditError):
+                raise
             except httpx.RequestError as e:
                 raise ProviderError(f"Network error polling Replicate: {str(e)}", self.provider_name)
 
@@ -233,7 +315,15 @@ class ReplicateVideoProvider(BaseVideoProvider):
                 return False
 
     def estimate_cost(self, model_id: str, duration_seconds: int, resolution: str) -> float:
-        rate = 0.08 if "minimax" in model_id else (0.07 if "kling" in model_id else 0.03)
+        m = model_id.lower()
+        if "kling-v4" in m:
+            rate = 0.10
+        elif "kling" in m:
+            rate = 0.07
+        elif "minimax" in m:
+            rate = 0.08
+        else:
+            rate = 0.03
         return round(rate * duration_seconds, 3)
 
     async def download_output(self, output_video_url: str) -> bytes:
@@ -242,6 +332,6 @@ class ReplicateVideoProvider(BaseVideoProvider):
             if res.status_code != 200:
                 raise ProviderError(
                     f"Failed to download generated video output: HTTP {res.status_code}",
-                    self.provider_name
+                    self.provider_name,
                 )
             return res.content
