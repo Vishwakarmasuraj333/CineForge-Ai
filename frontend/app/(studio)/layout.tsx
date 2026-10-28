@@ -16,7 +16,10 @@ import {
   Menu,
   X,
   User as UserIcon,
-  Cpu
+  Cpu,
+  Compass,
+  Clapperboard,
+  Settings
 } from "lucide-react";
 
 export default function StudioLayout({ children }: { children: React.ReactNode }) {
@@ -43,10 +46,13 @@ export default function StudioLayout({ children }: { children: React.ReactNode }
 
   const navItems = [
     { name: "Create Studio", href: "/create", icon: Video },
+    { name: "Storyboard", href: "/storyboard", icon: Clapperboard },
+    { name: "Explore Gallery", href: "/explore", icon: Compass },
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Projects", href: "/projects", icon: FolderKanban },
     { name: "Generations", href: "/generations", icon: History },
     { name: "Usage & Billing", href: "/usage", icon: Coins },
+    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   const handleLogout = () => {

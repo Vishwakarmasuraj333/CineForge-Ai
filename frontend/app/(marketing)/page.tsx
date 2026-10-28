@@ -29,12 +29,17 @@ export default function MarketingLandingPage() {
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <BrandMark size="md" />
 
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-cine-400">
+          <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-cine-400">
+            <Link href="/explore" className="hover:text-gold-400 transition-colors flex items-center gap-1">
+              Explore
+            </Link>
+            <Link href="/storyboard" className="hover:text-gold-400 transition-colors flex items-center gap-1">
+              Storyboard
+            </Link>
             <a href="#features" className="hover:text-cine-100 transition-colors">Features</a>
-            <a href="#workflow" className="hover:text-cine-100 transition-colors">Workflow</a>
             <a href="#models" className="hover:text-cine-100 transition-colors">Models</a>
-            <a href="#pricing" className="hover:text-cine-100 transition-colors">Transparent Pricing</a>
-            <a href="#faq" className="hover:text-cine-100 transition-colors">FAQ</a>
+            <Link href="/pricing" className="hover:text-gold-400 transition-colors">Pricing</Link>
+            <Link href="/docs-guide" className="hover:text-teal-400 transition-colors">API Docs</Link>
           </nav>
 
           <div className="flex items-center gap-4">
@@ -291,9 +296,11 @@ export default function MarketingLandingPage() {
           <p className="text-xs text-cine-400">
             © 2026 CineForge AI. Academic M.Sc. IT Major Project & Generative Video Studio.
           </p>
-          <div className="flex gap-6 text-xs text-cine-400">
-            <a href="#features" className="hover:text-cine-100">Documentation</a>
-            <a href="#pricing" className="hover:text-cine-100">Cost Model</a>
+          <div className="flex flex-wrap gap-5 text-xs text-cine-400">
+            <Link href="/explore" className="hover:text-gold-400">Explore</Link>
+            <Link href="/storyboard" className="hover:text-gold-400">Storyboard</Link>
+            <Link href="/pricing" className="hover:text-gold-400">Pricing</Link>
+            <Link href="/docs-guide" className="hover:text-teal-400">API Reference</Link>
             <Link href="/login" className="hover:text-cine-100">Sign In</Link>
           </div>
         </div>

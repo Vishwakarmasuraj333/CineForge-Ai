@@ -61,6 +61,14 @@ class Settings(BaseSettings):
                 abs_path = (backend_dir / db_path_str.lstrip("./\\")).resolve().as_posix()
                 prefix = v.split(":///")[0]
                 return f"{prefix}:///{abs_path}"
+        elif v.startswith("postgresql://"):
+            # Normalize to postgresql+asyncpg for async SQLAlchemy
+            v = v.replace("postgresql://", "postgresql+asyncpg://")
+            if "sslmode=require" in v and "ssl=" not in v:
+                v = v.replace("sslmode=require", "ssl=require")
+        elif v.startswith("postgresql+asyncpg://"):
+            if "sslmode=require" in v and "ssl=" not in v:
+                v = v.replace("sslmode=require", "ssl=require")
         return v
 
     # Redis & Celery
@@ -109,7 +117,10 @@ class Settings(BaseSettings):
         if url.startswith("sqlite+aiosqlite://"):
             return url.replace("sqlite+aiosqlite://", "sqlite://")
         elif url.startswith("postgresql+asyncpg://"):
-            return url.replace("postgresql+asyncpg://", "postgresql://")
+            sync_url = url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+            if "ssl=require" in sync_url and "sslmode=" not in sync_url:
+                sync_url = sync_url.replace("ssl=require", "sslmode=require")
+            return sync_url
         return url
 
 

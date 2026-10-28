@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { api, getVideoAssetUrl } from "@/lib/api-client";
 import {
   Video,
@@ -19,7 +20,9 @@ import {
   Film
 } from "lucide-react";
 
-export default function CreateStudioPage() {
+function CreateStudioContent() {
+  const searchParams = useSearchParams();
+
   // Projects
   const [projects, setProjects] = useState<any[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
@@ -27,6 +30,13 @@ export default function CreateStudioPage() {
   // Mode & Prompt
   const [mode, setMode] = useState<"text_to_video" | "image_to_video">("text_to_video");
   const [prompt, setPrompt] = useState("");
+
+  useEffect(() => {
+    const qPrompt = searchParams.get("prompt");
+    if (qPrompt) {
+      setPrompt(qPrompt);
+    }
+  }, [searchParams]);
   const [negativePrompt, setNegativePrompt] = useState("");
 
   // Image Upload for Image-to-Video
@@ -222,28 +232,38 @@ export default function CreateStudioPage() {
   const currentModelSpec = currentProviderObj?.models?.find((m: any) => m.model_id === selectedModel);
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-cine-800 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
+    <div className="space-y-6">
+      {/* Cinematic Studio Header */}
+      <div className="relative rounded-2xl bg-gradient-to-r from-cine-900 via-cine-900/95 to-cine-850 p-6 border border-cine-800 shadow-xl overflow-hidden flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="absolute top-0 right-0 w-72 h-72 bg-gold-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-bold uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Engine Online
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-cine-800/80 border border-cine-700 text-gold-400 font-mono text-[10px] font-semibold">
+              4K Neural Motion
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white flex items-center gap-2.5">
             <Film className="w-6 h-6 text-gold-400" /> Cinema Generation Studio
           </h1>
-          <p className="text-xs text-cine-400 mt-1">
-            Transform text prompts and conditioning frames into coherent, high-definition motion video.
+          <p className="text-xs text-cine-400 mt-1 max-w-xl">
+            Transform text prompts and conditioning frames into coherent, high-definition motion video with director-level camera controls.
           </p>
         </div>
 
         {/* Project Selector */}
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-cine-400 font-mono">PROJECT:</span>
+        <div className="relative z-10 flex items-center gap-2 bg-cine-950/80 border border-cine-800 px-3.5 py-2 rounded-xl text-xs font-mono">
+          <span className="text-cine-400">ACTIVE PROJECT:</span>
           <select
             value={selectedProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
-            className="bg-cine-900 border border-cine-700 rounded-md px-3 py-1.5 text-cine-200 focus:outline-none focus:border-gold-400 font-sans text-xs"
+            className="bg-transparent border-none text-gold-400 font-bold focus:outline-none font-sans text-xs cursor-pointer"
           >
             {projects.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.id} value={p.id} className="bg-cine-900 text-cine-100">
                 {p.title}
               </option>
             ))}
@@ -251,13 +271,17 @@ export default function CreateStudioPage() {
         </div>
       </div>
 
+      {/* Floating Modern Alert Toast */}
       {error && (
-        <div className="p-4 rounded-lg bg-red-950/40 border border-red-800 text-red-200 text-xs flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-            <span>{error}</span>
+        <div className="p-4 rounded-xl bg-gradient-to-r from-rose-950/80 via-cine-900 to-cine-950 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span className="font-medium">{error}</span>
           </div>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-white">
+          <button
+            onClick={() => setError(null)}
+            className="text-rose-400 hover:text-white p-1 rounded-md transition-colors"
+          >
             <XCircle className="w-4 h-4" />
           </button>
         </div>
@@ -268,12 +292,12 @@ export default function CreateStudioPage() {
         {/* Left Controls & Parameters (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
           {/* Mode Switcher */}
-          <div className="flex gap-2 p-1.5 bg-cine-900 rounded-lg border border-cine-800">
+          <div className="flex gap-2 p-1.5 bg-cine-900/90 rounded-xl border border-cine-800 shadow-md">
             <button
               onClick={() => setMode("text_to_video")}
-              className={`flex-1 py-2 text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
                 mode === "text_to_video"
-                  ? "bg-cine-800 text-gold-400 shadow-sm border border-cine-700"
+                  ? "bg-gradient-to-r from-gold-500 to-amber-500 text-cine-950 shadow-md shadow-gold-500/20"
                   : "text-cine-400 hover:text-cine-100"
               }`}
             >
@@ -281,9 +305,9 @@ export default function CreateStudioPage() {
             </button>
             <button
               onClick={() => setMode("image_to_video")}
-              className={`flex-1 py-2 text-xs font-semibold rounded-md flex items-center justify-center gap-2 transition-all ${
+              className={`flex-1 py-2.5 text-xs font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${
                 mode === "image_to_video"
-                  ? "bg-cine-800 text-teal-400 shadow-sm border border-cine-700"
+                  ? "bg-gradient-to-r from-teal-500 to-cyan-500 text-cine-950 shadow-md shadow-teal-500/20"
                   : "text-cine-400 hover:text-cine-100"
               }`}
             >
@@ -369,6 +393,39 @@ export default function CreateStudioPage() {
               placeholder="Describe your scene: e.g. An ancient brass observatory clockwork ticking under aurora borealis, anamorphic lens, 35mm grain, volumetric light..."
               className="w-full p-3 bg-cine-900 border border-cine-700 rounded-md text-sm text-cine-100 placeholder:text-cine-600 focus:outline-none focus:border-gold-400 focus:ring-1 focus:ring-gold-400 leading-relaxed font-sans"
             />
+
+            {/* Quick Inspiration Prompts */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              <span className="text-[10px] font-mono text-cine-500 uppercase tracking-wider mr-1">Inspirations:</span>
+              <button
+                type="button"
+                onClick={() => setPrompt("Cyberpunk alley in heavy neon rain, holographic advertisements reflecting on wet asphalt, hooded runner dashing past steam vents, 35mm anamorphic lens flare, 8k")}
+                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+              >
+                🌧️ Neo-Tokyo Rain
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrompt("Cinematic wide shot of an orbital scientific station rotating above the dense amber atmosphere of Titan, methane sea glinting under distant sunlight, 8k photorealistic")}
+                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+              >
+                🚀 Orbital Relay
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrompt("Intimate macro shot of an elderly artisan with magnifying loupe adjusting brass escapement gears in candlelit workshop, dust motes dancing in warm light, 35mm film grain")}
+                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+              >
+                🕰️ Clockmaker Macro
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrompt("Breathtaking FPV drone sweep descending over steaming basalt lava flows meeting the frozen Atlantic ocean, vibrant emerald aurora borealis overhead, 8k")}
+                className="px-2.5 py-1 rounded-md bg-cine-900 hover:bg-cine-800 text-cine-300 hover:text-gold-300 border border-cine-800 text-[11px] font-medium transition-colors"
+              >
+                🌋 Icelandic Volcano
+              </button>
+            </div>
           </div>
 
           {/* Negative Prompt */}
@@ -614,6 +671,14 @@ export default function CreateStudioPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function CreateStudioPage() {
+  return (
+    <React.Suspense fallback={<div className="p-8 text-cine-400 font-mono text-sm">Loading Studio Workspace...</div>}>
+      <CreateStudioContent />
+    </React.Suspense>
   );
 }
 

@@ -20,11 +20,16 @@ ROUTES = [
     ("/", "Landing Page"),
     ("/login", "Authentication - Login"),
     ("/register", "Authentication - Register"),
+    ("/pricing", "Pricing & Cost Calculator"),
+    ("/docs-guide", "Developer Documentation"),
     ("/create", "Studio Workspace"),
     ("/dashboard", "Studio Dashboard"),
+    ("/explore", "Community Showcase"),
+    ("/storyboard", "Storyboard Studio"),
     ("/projects", "Projects Directory"),
     ("/generations", "Generations Queue"),
     ("/usage", "Usage & Billing"),
+    ("/settings", "Studio Settings"),
 ]
 
 
@@ -32,12 +37,17 @@ ROUTE_EXPECTED_TEXT = {
     "/": ("From imagination to motion", "Public Landing Page"),
     "/login": ("Welcome back to the Studio", "Authentication - Sign In"),
     "/register": ("Create Your Creator Account", "Authentication - Register"),
+    "/pricing": ("Unleash Hollywood-Grade AI Video", "Transparent SaaS Pricing"),
+    "/docs-guide": ("CineForge AI Developer Documentation", "Developer Documentation"),
     # Protected Studio routes redirect unauthenticated browsers to Login or render Studio Shell
     "/create": ("Welcome back to the Studio", "Studio Workspace (Auth Protected)"),
     "/dashboard": ("Welcome back to the Studio", "Studio Dashboard (Auth Protected)"),
+    "/explore": ("Welcome back to the Studio", "Explore Gallery (Auth Protected)"),
+    "/storyboard": ("Welcome back to the Studio", "Storyboard Studio (Auth Protected)"),
     "/projects": ("Welcome back to the Studio", "Projects Directory (Auth Protected)"),
     "/generations": ("Welcome back to the Studio", "Generations Queue (Auth Protected)"),
     "/usage": ("Welcome back to the Studio", "Usage & Billing (Auth Protected)"),
+    "/settings": ("Welcome back to the Studio", "Studio Settings (Auth Protected)"),
 }
 
 
@@ -46,6 +56,9 @@ def test_page_viewport(route: str, width: int, height: int) -> Tuple[bool, str]:
     cmd = [
         CHROME_BIN,
         "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
         f"--window-size={width},{height}",
         "--virtual-time-budget=2000",
         "--dump-dom",
@@ -53,7 +66,7 @@ def test_page_viewport(route: str, width: int, height: int) -> Tuple[bool, str]:
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         html = res.stdout
 
         if not html:
