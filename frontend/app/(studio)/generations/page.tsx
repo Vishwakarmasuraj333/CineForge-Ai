@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { api } from "@/lib/api-client";
+import { api, getVideoAssetUrl } from "@/lib/api-client";
 import {
   History,
   Video,
@@ -122,7 +122,7 @@ export default function GenerationsPage() {
                             <Play className="w-3.5 h-3.5 fill-current" />
                           </button>
                           <a
-                            href={`http://localhost:8000/api/v1/assets/raw/users/${gen.owner_id}/videos/${gen.id}.mp4`}
+                            href={getVideoAssetUrl(gen.owner_id, gen.id)}
                             download={`cineforge_${gen.id.slice(0, 8)}.mp4`}
                             className="p-1.5 rounded bg-cine-800 hover:bg-teal-500 hover:text-cine-950 text-teal-400 transition-colors"
                             title="Download MP4"
@@ -161,7 +161,7 @@ export default function GenerationsPage() {
                 controls
                 autoPlay
                 className="w-full h-full object-cover"
-                src={`http://localhost:8000/api/v1/assets/raw/users/${activePreview.owner_id}/videos/${activePreview.id}.mp4`}
+                src={getVideoAssetUrl(activePreview.owner_id, activePreview.id)}
               />
             </div>
 
@@ -170,7 +170,7 @@ export default function GenerationsPage() {
                 Model: {activePreview.provider_model_id} • Cost: ${activePreview.actual_cost?.toFixed(3)}
               </span>
               <a
-                href={`http://localhost:8000/api/v1/assets/raw/users/${activePreview.owner_id}/videos/${activePreview.id}.mp4`}
+                href={getVideoAssetUrl(activePreview.owner_id, activePreview.id)}
                 download={`cineforge_${activePreview.id.slice(0, 8)}.mp4`}
                 className="px-4 py-2 bg-gold-500 hover:bg-gold-400 text-cine-950 font-bold text-xs rounded-md shadow flex items-center gap-1.5"
               >

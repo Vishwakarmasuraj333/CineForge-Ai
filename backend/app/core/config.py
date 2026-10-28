@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import List, Literal, Optional
 
 from pydantic import field_validator
@@ -48,6 +49,19 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./cineforge.db"
     DATABASE_ECHO: bool = False
+
+    @field_validator("DATABASE_URL", mode="after")
+    @classmethod
+    def assemble_db_url(cls, v: str) -> str:
+        if v.startswith("sqlite") and ":///" in v and ":memory:" not in v:
+            # Anchor relative sqlite paths to backend root
+            db_path_str = v.split(":///")[-1]
+            if not Path(db_path_str).is_absolute():
+                backend_dir = Path(__file__).resolve().parent.parent.parent
+                abs_path = (backend_dir / db_path_str.lstrip("./\\")).resolve().as_posix()
+                prefix = v.split(":///")[0]
+                return f"{prefix}:///{abs_path}"
+        return v
 
     # Redis & Celery
     REDIS_URL: str = "redis://localhost:6379/0"

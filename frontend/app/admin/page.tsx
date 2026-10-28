@@ -1,15 +1,26 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { ShieldAlert, Users, Film, DollarSign, Activity } from "lucide-react";
+import { api } from "@/lib/api-client";
+import { ShieldAlert, Users, Film, DollarSign, Activity, AlertCircle } from "lucide-react";
 
 export default function AdminOverviewPage() {
   const [stats, setStats] = useState({
-    total_users: 1,
-    total_generations: 3,
-    total_billed_usd: 0.15,
-    system_status: "HEALTHY",
+    total_users: 0,
+    total_generations: 0,
+    total_billed_usd: 0.0,
+    system_status: "CHECKING",
   });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.admin
+      .getOverview()
+      .then((data) => setStats(data))
+      .catch((err) => {
+        setError(err.message || "Failed to load administrative metrics. Admin privileges required.");
+      });
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -21,6 +32,13 @@ export default function AdminOverviewPage() {
           Real-time metrics, provider quotas, and compliance audit logs
         </p>
       </div>
+
+      {error && (
+        <div className="p-3.5 rounded-lg bg-amber-950/40 border border-amber-800 text-amber-200 text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="p-4 rounded-lg bg-cine-900 border border-cine-800 space-y-1">

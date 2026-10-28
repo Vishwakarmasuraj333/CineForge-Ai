@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { api } from "@/lib/api-client";
+import { api, getVideoAssetUrl } from "@/lib/api-client";
 import {
   Video,
   Image as ImageIcon,
@@ -181,6 +181,7 @@ export default function CreateStudioPage() {
     setError(null);
 
     try {
+      const idempotencyKey = `cine_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const res = await api.generations.create({
         project_id: selectedProjectId,
         prompt: prompt.trim(),
@@ -189,6 +190,7 @@ export default function CreateStudioPage() {
         provider_name: selectedProvider,
         provider_model_id: selectedModel,
         input_asset_id: uploadedAsset ? uploadedAsset.id : undefined,
+        idempotency_key: idempotencyKey,
         parameters: {
           aspect_ratio: aspectRatio,
           duration_seconds: duration,
@@ -547,7 +549,7 @@ export default function CreateStudioPage() {
                           autoPlay
                           loop
                           className="w-full h-full object-cover"
-                          src={`http://localhost:8000/api/v1/assets/raw/users/${activeGeneration.owner_id}/videos/${activeGeneration.id}.mp4`}
+                          src={getVideoAssetUrl(activeGeneration.owner_id, activeGeneration.id)}
                         />
                       </div>
 
@@ -556,7 +558,7 @@ export default function CreateStudioPage() {
                           <CheckCircle2 className="w-3.5 h-3.5" /> Generation Complete
                         </span>
                         <a
-                          href={`http://localhost:8000/api/v1/assets/raw/users/${activeGeneration.owner_id}/videos/${activeGeneration.id}.mp4`}
+                          href={getVideoAssetUrl(activeGeneration.owner_id, activeGeneration.id)}
                           download={`cineforge_${activeGeneration.id.slice(0, 8)}.mp4`}
                           className="px-3 py-1 bg-gold-500 hover:bg-gold-400 text-cine-950 rounded font-bold flex items-center gap-1 transition-all"
                         >

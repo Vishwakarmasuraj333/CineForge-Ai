@@ -1,4 +1,4 @@
-import hashlib
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
@@ -46,17 +46,28 @@ class GenerationService:
         if not project:
             raise EntityNotFoundException("Project", req.project_id)
 
-        # Idempotency key generation or check
-        idempotency_key = req.idempotency_key or hashlib.sha256(
-            f"{owner_id}:{req.project_id}:{req.prompt}:{req.generation_type}:{sorted(req.parameters.items() if req.parameters else [])}".encode("utf-8")
-        ).hexdigest()
-
-        existing_res = await self.db.execute(
-            select(Generation).where(Generation.idempotency_key == idempotency_key)
-        )
-        existing = existing_res.scalar_one_or_none()
-        if existing:
-            return existing, False
+        # Explicit client-generated idempotency key or fresh UUID per generation
+        if req.idempotency_key:
+            idempotency_key = req.idempotency_key.strip()
+            existing_res = await self.db.execute(
+                select(Generation).where(Generation.idempotency_key == idempotency_key)
+            )
+            existing = existing_res.scalar_one_or_none()
+            if existing:
+                # Check for parameter conflict
+                if (
+                    existing.owner_id != owner_id
+                    or existing.project_id != req.project_id
+                    or existing.prompt != req.prompt.strip()
+                ):
+                    raise ValidationException(
+                        "Idempotency key has already been used with different request parameters.",
+                        details={"idempotency_key": idempotency_key}
+                    )
+                # Safe idempotent return of existing generation record
+                return existing, False
+        else:
+            idempotency_key = f"gen_{uuid.uuid4().hex}"
 
         # Select provider and model
         provider_name = req.provider_name or settings.DEFAULT_VIDEO_PROVIDER
