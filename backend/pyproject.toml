@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cineforge-backend"
+version = "1.0.0"
+description = "CineForge AI Backend Service"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "CineForge AI Team" }]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q -ra"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+

@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-10-28T07:41:28.230683+00:00",
+  "total_experiments": 4,
+  "latency": {
+    "count": 4,
+    "mean": 1.02,
+    "median": 1.02,
+    "p95": 1.03,
+    "min": 1.02,
+    "max": 1.03
+  },
+  "reliability": {
+    "success_rate": 100.0,
+    "error_rate": 0.0
+  },
+  "cost_efficiency_usd_per_sec": 0.01,
+  "experiments": [
+    {
+      "test_id": 1,
+      "category": "Cinematic Sci-Fi",
+      "prompt": "An astronaut traversing obsidian dunes on Titan under a ringed Saturn twilight, 35mm lens, golden rim light, photorealistic",
+      "status": "SUCCEEDED",
+      "latency_seconds": 1.029,
+      "cost_usd": 0.05,
+      "duration_seconds": 5
+    },
+    {
+      "test_id": 2,
+      "category": "Character Motion",
+      "prompt": "A cybernetic artisan carefully assembling a clockwork hummingbird in a dimly lit Victorian workshop, macro close-up",
+      "status": "SUCCEEDED",
+      "latency_seconds": 1.026,
+      "cost_usd": 0.05,
+      "duration_seconds": 5
+    },
+    {
+      "test_id": 3,
+      "category": "Atmospheric Nature",
+      "prompt": "Bioluminescent mist drifting over misty pine trees in a mountain pass at dawn, slow aerial push-in, soft fog",
+      "status": "SUCCEEDED",
+      "latency_seconds": 1.02,
+      "cost_usd": 0.05,
+      "duration_seconds": 5
+    },
+    {
+      "test_id": 4,
+      "category": "Urban Architecture",
+      "prompt": "Rain-slicked neon street in Neo-Kyoto with reflections of flying vehicles, slow cinematic tracking shot, 8k",
+      "status": "SUCCEEDED",
+      "latency_seconds": 1.019,
+      "cost_usd": 0.05,
+      "duration_seconds": 5
+    }
+  ]
+}
