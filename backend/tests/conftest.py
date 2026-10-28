@@ -10,13 +10,17 @@ os.environ["ENVIRONMENT"] = "testing"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-for-cineforge-automated-tests"
 
+import app.db.session as db_session_mod
 from app.db.session import Base, get_db
-from app.main import app
 
 test_engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 TestingSessionLocal = async_sessionmaker(
     bind=test_engine, class_=AsyncSession, expire_on_commit=False
 )
+db_session_mod.AsyncSessionLocal = TestingSessionLocal
+db_session_mod.engine = test_engine
+
+from app.main import app  # noqa: E402
 
 
 @pytest.fixture(scope="session")

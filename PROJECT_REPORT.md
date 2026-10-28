@@ -131,13 +131,13 @@ The adapter abstraction and asynchronous worker successfully isolated the applic
 
 ### 9.1 Backend Testing Suite
 - **Framework:** Pytest 9.2.0 + Pytest-Asyncio
-- **Results:** 19 tests passed, 0 failures, 100% clean exit code in 13.89s.
+- **Results:** 20 tests passed, 0 failures, 100% clean exit code in 13.17s.
   - `test_security.py`: Password hashing, JWT creation, token expiry validation.
   - `test_media_validation.py`: Filename sanitization, magic bytes checking, corrupted file rejection.
   - `test_providers.py`: Mock provider lifecycle, Replicate provider capabilities, validation rules, and mock HTTP adapter lifecycle.
   - `test_auth_api.py`: Registration, duplicate email rejection (HTTP 409), login, `/auth/me`.
   - `test_projects_api.py`: Full CRUD and HTTP 403 cross-user access barrier verification.
-  - `test_generations_api.py`: Generation lifecycle and idempotency deduplication.
+  - `test_generations_api.py`: Generation lifecycle, idempotency deduplication, and worker recovery from interrupted jobs on restart.
   - `test_security_audit.py`: Path traversal defense, MIME spoofing rejection, cross-user generation isolation, and admin authorization enforcement.
 - **Linting:** Ruff check executed with `All checks passed!`.
 

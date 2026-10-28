@@ -50,3 +50,57 @@ async def test_generation_lifecycle_and_idempotency(client: AsyncClient):
     assert get_res.status_code == 200
     assert get_res.json()["prompt"] == gen_payload["prompt"]
 
+
+@pytest.mark.asyncio
+async def test_worker_recovery_from_interrupted_jobs(client: AsyncClient):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.db.session import AsyncSessionLocal
+    from app.models.generation import Generation
+    from app.models.user import User
+    from app.workers.async_runner import recover_interrupted_jobs
+
+    # Register user & project
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={"email": "director@cineforge.ai", "password": "DirectorPassword123!", "display_name": "Director"},
+    )
+    token = reg.json()["access_token"]
+    header = {"Authorization": f"Bearer {token}"}
+
+    proj = await client.post("/api/v1/projects", json={"title": "Recovery Test Project"}, headers=header)
+    proj_id = proj.json()["id"]
+
+    # Insert an interrupted generation directly with QUEUED status
+    async with AsyncSessionLocal() as db:
+        user_res = await db.execute(select(User).where(User.email == "director@cineforge.ai"))
+        user = user_res.scalar_one()
+
+        gen = Generation(
+            project_id=proj_id,
+            owner_id=user.id,
+            provider_name="mock",
+            provider_model_id="cineforge-mock-v1",
+            generation_type="text_to_video",
+            prompt="Simulated interrupted job prompt",
+            status="QUEUED",
+            progress_percent=0,
+            estimated_cost=0.05,
+            idempotency_key="recovery_test_key_01",
+        )
+        db.add(gen)
+        await db.commit()
+        await db.refresh(gen)
+        interrupted_id = gen.id
+
+    # Execute recovery scan
+    await recover_interrupted_jobs()
+
+    # Allow worker step to execute
+    await asyncio.sleep(0.5)
+    check_res = await client.get(f"/api/v1/generations/{interrupted_id}", headers=header)
+    assert check_res.status_code == 200
+    assert check_res.json()["status"] in ["SUBMITTED", "PROCESSING", "SUCCEEDED"]
+

@@ -31,7 +31,7 @@
 
 ## 2. Command Execution Evidence & Real Exit Codes
 
-### A. Full Pytest Test Suite (19 Passed, 0 Failures)
+### A. Full Pytest Test Suite (20 Passed, 0 Failures)
 ```powershell
 PS C:\Users\imdee\.gemini\antigravity-ide\scratch\cineforge-ai> backend\.venv\Scripts\pytest.exe -v
 ============================= test session starts =============================
@@ -41,30 +41,31 @@ rootdir: C:\Users\imdee\.gemini\antigravity-ide\scratch\cineforge-ai
 configfile: pytest.ini
 testpaths: backend/tests
 plugins: anyio-4.15.1, asyncio-1.4.1, mock-3.17.0
-asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function
-collecting ... collected 19 items
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 20 items
 
 backend/tests/integration/test_auth_api.py::test_auth_registration_and_login_flow PASSED [  5%]
 backend/tests/integration/test_auth_api.py::test_auth_duplicate_email_rejected PASSED [ 10%]
 backend/tests/integration/test_generations_api.py::test_generation_lifecycle_and_idempotency PASSED [ 15%]
-backend/tests/integration/test_projects_api.py::test_projects_crud_and_cross_user_isolation PASSED [ 21%]
-backend/tests/security/test_security_audit.py::test_path_traversal_defense PASSED [ 26%]
-backend/tests/security/test_security_audit.py::test_mime_spoofing_defense PASSED [ 31%]
-backend/tests/security/test_security_audit.py::test_cross_user_generation_isolation PASSED [ 36%]
-backend/tests/security/test_security_audit.py::test_admin_route_forbidden_for_standard_user PASSED [ 42%]
-backend/tests/unit/test_media_validation.py::test_sanitize_filename PASSED [ 47%]
-backend/tests/unit/test_media_validation.py::test_valid_image_validation PASSED [ 52%]
-backend/tests/unit/test_media_validation.py::test_corrupted_image_rejected PASSED [ 57%]
-backend/tests/unit/test_providers.py::test_mock_provider_lifecycle PASSED [ 63%]
-backend/tests/unit/test_providers.py::test_cost_estimation PASSED        [ 68%]
-backend/tests/unit/test_providers.py::test_replicate_provider_capabilities PASSED [ 73%]
-backend/tests/unit/test_providers.py::test_replicate_validation_rules PASSED [ 78%]
-backend/tests/unit/test_providers.py::test_replicate_adapter_http_lifecycle PASSED [ 84%]
-backend/tests/unit/test_security.py::test_password_hashing PASSED        [ 89%]
-backend/tests/unit/test_security.py::test_jwt_access_and_refresh_tokens PASSED [ 94%]
+backend/tests/integration/test_generations_api.py::test_worker_recovery_from_interrupted_jobs PASSED [ 20%]
+backend/tests/integration/test_projects_api.py::test_projects_crud_and_cross_user_isolation PASSED [ 25%]
+backend/tests/security/test_security_audit.py::test_path_traversal_defense PASSED [ 30%]
+backend/tests/security/test_security_audit.py::test_mime_spoofing_defense PASSED [ 35%]
+backend/tests/security/test_security_audit.py::test_cross_user_generation_isolation PASSED [ 40%]
+backend/tests/security/test_security_audit.py::test_admin_route_forbidden_for_standard_user PASSED [ 45%]
+backend/tests/unit/test_media_validation.py::test_sanitize_filename PASSED [ 50%]
+backend/tests/unit/test_media_validation.py::test_valid_image_validation PASSED [ 55%]
+backend/tests/unit/test_media_validation.py::test_corrupted_image_rejected PASSED [ 60%]
+backend/tests/unit/test_providers.py::test_mock_provider_lifecycle PASSED [ 65%]
+backend/tests/unit/test_cost_estimation PASSED        [ 70%]
+backend/tests/unit/test_providers.py::test_replicate_provider_capabilities PASSED [ 75%]
+backend/tests/unit/test_providers.py::test_replicate_validation_rules PASSED [ 80%]
+backend/tests/unit/test_providers.py::test_replicate_adapter_http_lifecycle PASSED [ 85%]
+backend/tests/unit/test_security.py::test_password_hashing PASSED        [ 90%]
+backend/tests/unit/test_security.py::test_jwt_access_and_refresh_tokens PASSED [ 95%]
 backend/tests/unit/test_security.py::test_invalid_token_rejected PASSED  [100%]
 
-======================= 19 passed, 2 warnings in 13.89s =======================
+======================= 20 passed, 2 warnings in 13.17s =======================
 Exit Code: 0
 ```
 
@@ -182,3 +183,4 @@ Exit Code: 2
 3. **Strict Path-Traversal Rejection:** Local filesystem drivers reject all parent directory traversals (`../`) with HTTP 422.
 4. **MIME & Magic Byte Validation:** File upload validation requires matching binary headers before files can be stored or passed to ML pipelines.
 5. **Multi-Tenant Query Enforcement:** All SQL queries strictly scope access to the active user identity (`owner_id == user_id`).
+6. **Server Restart Worker Recovery:** Startup scan (`recover_interrupted_jobs()`) automatically detects and resumes non-terminal generations (`QUEUED`, `SUBMITTED`, `PROCESSING`, `DOWNLOADING`) interrupted by server termination.

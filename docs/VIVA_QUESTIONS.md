@@ -122,3 +122,13 @@ Rather than assuming responsiveness from a successful Next.js build, we develope
 - Desktop (1440x900 - MacBook/PC)
 - Full HD / Ultra-Wide (1920x1080)  
 The script verifies that responsive layout containers (`md:hidden` mobile menu vs `md:flex` desktop sidebar) mount correctly, document titles render, and no runtime layout exceptions occur.
+
+---
+
+### Q13: What happens to active generation jobs if the backend server restarts unexpectedly?
+**Answer:**  
+In production environments, unhandled server crashes, container restarts, or rolling deployments can occur while long-running video generations are in flight.  
+CineForge AI implements automated job recovery within FastAPI's `lifespan` context manager via `recover_interrupted_jobs()`:
+1. **Startup Detection:** On application initialization, the worker queries the database for any generation records remaining in non-terminal states (`QUEUED`, `SUBMITTED`, `PROCESSING`, `DOWNLOADING`).
+2. **Seamless Resumption:** The runner automatically re-enqueues each interrupted generation into the execution loop, reconnecting to the external provider's status polling endpoint or resuming local processing.
+3. **Fault Tolerance:** This guarantees that no user job is permanently orphaned in an unhandled state, ensuring high availability and zero manual operator intervention.

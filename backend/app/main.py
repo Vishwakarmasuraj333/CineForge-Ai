@@ -19,6 +19,11 @@ from app.core.logging import logger
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION} in {settings.ENVIRONMENT} mode.")
+    try:
+        from app.workers.async_runner import recover_interrupted_jobs
+        await recover_interrupted_jobs()
+    except Exception as e:
+        logger.warning(f"Could not scan for interrupted jobs during startup: {e}")
     yield
     logger.info("Shutting down CineForge AI backend.")
 

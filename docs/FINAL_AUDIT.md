@@ -14,7 +14,7 @@
 - **Media Processing:** Binary magic-byte validation (PNG `89504E47`, JPEG `FFD8FF`), Pillow integrity checks, SHA-256 checksums, and storage drivers (Local & S3).
 - **Prompt Intelligence:** Bilingual Hindi/English cinematic prompt enrichment and 3-scene storyboard breakdown.
 - **Frontend App Router:** Next.js 14 application with responsive cinematic UI, Studio Workspace (`/create`), Dashboard (`/dashboard`), Projects (`/projects`), Generations Queue (`/generations`), and Usage Ledger (`/usage`).
-- **Automated Verification:** 19 automated unit and integration tests passing in Pytest; Next.js 14 production build compiling 13/13 static routes with zero errors; 48 automated Headless Chrome responsive browser tests passing across 6 viewports.
+- **Automated Verification:** 20 automated unit and integration tests passing in Pytest; Next.js 14 production build compiling 13/13 static routes with zero errors; 48 automated Headless Chrome responsive browser tests passing across 6 viewports.
 
 ---
 
@@ -30,6 +30,7 @@
 | 6 | **Relative SQLite Database Path Divergence** | Scripts run from workspace root versus `backend/` resolved SQLite paths to different files. | Added Pydantic field validator in `config.py` anchoring SQLite paths to `backend/cineforge.db`. | `scripts/verify-env.py` and `scripts/seed-dev.py` |
 | 7 | **Git Tracking Masked Frontend Lib** | Python `.gitignore` contained generic `lib/` which inadvertently ignored `frontend/lib/api-client.ts`. | Added `!frontend/lib/` exception in `.gitignore`. | Git version control |
 | 8 | **Incomplete Health Probe Routes** | Backend exposed `/health/live` and `/health/ready` but `/health` returned 404. | Added summary `/health` endpoint returning system, DB, and storage status. | `GET /api/v1/health` $\to$ HTTP 200 `healthy` |
+| 9 | **Worker Restart Resilience** | Unhandled server termination could leave generations stuck indefinitely in `QUEUED` or `PROCESSING` state upon restart. | Implemented `recover_interrupted_jobs()` invoked in FastAPI `lifespan` handler to automatically resume active jobs. | `test_worker_recovery_from_interrupted_jobs PASSED` |
 
 ---
 
